@@ -1,6 +1,6 @@
 [package]
 name = "axum-api-kit"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Shared response types for Axum JSON APIs: ApiError, ListResponse, and HealthResponse"
 license = "MIT"
@@ -9,8 +9,13 @@ keywords = ["axum", "api", "rest", "response", "http"]
 categories = ["web-programming::http-server", "web-programming"]
 readme = "README.md"
 
+[features]
+default = []
+validator = ["dep:validator"]
+
 [dependencies]
 axum = { version = "0.8", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 http = "1"
+validator = { version = "0.18", optional = true }

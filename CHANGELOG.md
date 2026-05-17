@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-05-17
+
+### Added
+
+- Optional `validator` feature flag with `validator` crate integration.
+- `From<validator::ValidationErrors> for ApiError` (when `validator` feature is enabled).
+- Deterministic validation error details shape under `details.fields` for field-level errors.
+- Feature-gated tests for validator conversion paths and serialized payload structure.
+
 ## [0.3.0] - 2026-05-17
 
 ### Added

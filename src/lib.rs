@@ -6,7 +6,8 @@
 //! - [`ApiError`] - a machine-readable JSON error body with `code`, `message`, and optional
 //!   `details`, plus factory helpers that return `(StatusCode, Json<ApiError>)` tuples ready
 //!   for use with Axum's [`IntoResponse`](axum::response::IntoResponse). Supports `From`
-//!   conversions for common error types.
+//!   conversions for common error types. With the optional `validator` feature enabled,
+//!   also supports converting `validator::ValidationErrors` into structured field errors.
 //! - [`ListResponse<T>`] - a generic offset/limit paginated collection response with `data`,
 //!   `total`, `limit`, and `offset` fields.
 //! - [`CursorResponse<T>`] - a generic cursor-based paginated collection response for large

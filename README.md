@@ -7,7 +7,13 @@ Every Axum CRUD service defines the same `ApiError`, `HealthResponse`, and pagin
 ## Installation
 
 ```toml
-axum-api-kit = "0.3"
+axum-api-kit = "0.4"
+```
+
+Optional validator integration:
+
+```toml
+axum-api-kit = { version = "0.4", features = ["validator"] }
 ```
 
 ## Types
@@ -50,9 +56,10 @@ async fn propagate() -> Result<(), ApiError> {
 // Chain error sources with with_source()
 async fn chained() -> impl IntoResponse {
     use serde_json::json;
-    ApiError::not_found("user")
+    let err = ApiError::new("NOT_FOUND", "user not found")
         .with_source("SELECT * FROM users WHERE id = 42")
-        .with_details(json!({ "user_id": 42 }))
+        .with_details(json!({ "user_id": 42 }));
+    (axum::http::StatusCode::NOT_FOUND, axum::Json(err))
 }
 
 // Use ? operator in handlers with From<std::io::Error> and From<serde_json::Error>
@@ -61,7 +68,6 @@ async fn read_file() -> Result<impl IntoResponse, ApiError> {
     let cfg: serde_json::Value = serde_json::from_str(&content)?;  // auto-converts JSON error
     Ok((axum::http::StatusCode::OK, content))
 }
-```
 ```
 
 Available factory methods:
@@ -179,6 +185,46 @@ async fn handler() -> Result<impl IntoResponse, ApiError> {
 Supported conversions:
 - `std::io::Error` - file I/O failures
 - `serde_json::Error` - JSON parsing errors
+
+## Optional Integrations
+
+### Validator Integration (`validator` feature)
+
+Enable the feature to convert `validator::ValidationErrors` directly into `ApiError`.
+
+```rust
+use axum::response::IntoResponse;
+use axum_api_kit::ApiError;
+
+#[cfg(feature = "validator")]
+async fn create_user() -> Result<impl IntoResponse, ApiError> {
+        // validate_user returns Result<(), validator::ValidationErrors>
+        validate_user()?; // auto-converts into ApiError via From<ValidationErrors>
+        Ok((axum::http::StatusCode::CREATED, "ok"))
+}
+```
+
+The resulting `ApiError` uses this shape:
+
+```json
+{
+    "code": "VALIDATION_ERROR",
+    "message": "validation failed",
+    "details": {
+        "fields": {
+            "email": [
+                {
+                    "code": "email",
+                    "message": "invalid email",
+                    "params": {
+                        "value": "bad-input"
+                    }
+                }
+            ]
+        }
+    }
+}
+```
 
 ## License
 

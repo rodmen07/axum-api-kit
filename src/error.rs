@@ -189,6 +189,74 @@ impl From<serde_json::Error> for ApiError {
     }
 }
 
+#[cfg(feature = "validator")]
+fn collect_validation_errors(
+    prefix: Option<&str>,
+    errors: &validator::ValidationErrors,
+    out: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    use validator::ValidationErrorsKind;
+
+    for (field, kind) in errors.errors() {
+        let base = if let Some(prefix) = prefix {
+            format!("{}.{}", prefix, field)
+        } else {
+            field.to_string()
+        };
+
+        match kind {
+            ValidationErrorsKind::Field(field_errors) => {
+                let items = field_errors
+                    .iter()
+                    .map(|err| {
+                        let mut obj = serde_json::Map::new();
+                        obj.insert(
+                            "code".to_string(),
+                            serde_json::Value::String(err.code.to_string()),
+                        );
+                        if let Some(message) = &err.message {
+                            obj.insert(
+                                "message".to_string(),
+                                serde_json::Value::String(message.to_string()),
+                            );
+                        }
+                        if !err.params.is_empty() {
+                            let params = match serde_json::to_value(&err.params) {
+                                Ok(v) => v,
+                                Err(_) => serde_json::Value::Null,
+                            };
+                            obj.insert("params".to_string(), params);
+                        }
+                        serde_json::Value::Object(obj)
+                    })
+                    .collect::<Vec<_>>();
+                out.insert(base, serde_json::Value::Array(items));
+            }
+            ValidationErrorsKind::Struct(nested) => {
+                collect_validation_errors(Some(&base), nested, out);
+            }
+            ValidationErrorsKind::List(items) => {
+                for (index, nested) in items {
+                    let indexed = format!("{}[{}]", base, index);
+                    collect_validation_errors(Some(&indexed), nested, out);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "validator")]
+impl From<validator::ValidationErrors> for ApiError {
+    fn from(errors: validator::ValidationErrors) -> Self {
+        let mut fields = serde_json::Map::new();
+        collect_validation_errors(None, &errors, &mut fields);
+
+        Self::new("VALIDATION_ERROR", "validation failed").with_details(serde_json::json!({
+            "fields": fields
+        }))
+    }
+}
+
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.code, self.message)
@@ -391,5 +459,54 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied");
         let api_err: ApiError = io_err.into();
         assert!(api_err.message.contains("permission denied"));
+    }
+
+    #[cfg(feature = "validator")]
+    #[test]
+    fn from_validation_errors_single_field() {
+        use std::borrow::Cow;
+        use validator::{ValidationError, ValidationErrors};
+
+        let mut errors = ValidationErrors::new();
+        let mut email = ValidationError::new("email");
+        email.message = Some(Cow::Borrowed("invalid email"));
+        errors.add("email", email);
+
+        let api_err: ApiError = errors.into();
+        let v = serde_json::to_value(api_err).unwrap();
+
+        assert_eq!(v["code"], "VALIDATION_ERROR");
+        assert_eq!(v["message"], "validation failed");
+        assert_eq!(v["details"]["fields"]["email"][0]["code"], "email");
+        assert_eq!(
+            v["details"]["fields"]["email"][0]["message"],
+            "invalid email"
+        );
+    }
+
+    #[cfg(feature = "validator")]
+    #[test]
+    fn from_validation_errors_multiple_fields_with_params() {
+        use std::borrow::Cow;
+        use validator::{ValidationError, ValidationErrors};
+
+        let mut errors = ValidationErrors::new();
+
+        let mut username = ValidationError::new("length");
+        username.message = Some(Cow::Borrowed("username too short"));
+        username.add_param(Cow::Borrowed("min"), &3);
+        errors.add("username", username);
+
+        let mut age = ValidationError::new("range");
+        age.add_param(Cow::Borrowed("min"), &18);
+        errors.add("age", age);
+
+        let api_err: ApiError = errors.into();
+        let v = serde_json::to_value(api_err).unwrap();
+
+        assert_eq!(v["details"]["fields"]["username"][0]["code"], "length");
+        assert_eq!(v["details"]["fields"]["username"][0]["params"]["min"], 3);
+        assert_eq!(v["details"]["fields"]["age"][0]["code"], "range");
+        assert_eq!(v["details"]["fields"]["age"][0]["params"]["min"], 18);
     }
 }
