@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-17
+
+### Added
+
+- `From<std::io::Error>` impl on `ApiError` - enables using `?` operator in handlers for I/O operations, automatically converting to HTTP 500.
+- `From<serde_json::Error>` impl on `ApiError` - enables using `?` operator for JSON parsing errors.
+- `ApiError::with_source(source_msg)` method - attach error source/context to details field for debugging chains: `ApiError::not_found("user").with_source("SELECT * FROM users")`.
+- `CursorResponse<T>` - new cursor-based pagination type for large datasets and feeds, with `data`, `next_cursor: Option<String>`, and `has_more` fields.
+- Unit tests for all new error conversion and cursor pagination features.
+
 ## [0.2.0] - 2026-05-17
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "axum-api-kit"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Shared response types for Axum JSON APIs: ApiError, ListResponse, and HealthResponse"
 license = "MIT"

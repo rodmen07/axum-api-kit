@@ -7,7 +7,7 @@ Every Axum CRUD service defines the same `ApiError`, `HealthResponse`, and pagin
 ## Installation
 
 ```toml
-axum-api-kit = "0.2"
+axum-api-kit = "0.3"
 ```
 
 ## Types
@@ -46,6 +46,22 @@ async fn custom() -> impl IntoResponse {
 async fn propagate() -> Result<(), ApiError> {
     Err(ApiError::new("GONE", "resource deleted"))
 }
+
+// Chain error sources with with_source()
+async fn chained() -> impl IntoResponse {
+    use serde_json::json;
+    ApiError::not_found("user")
+        .with_source("SELECT * FROM users WHERE id = 42")
+        .with_details(json!({ "user_id": 42 }))
+}
+
+// Use ? operator in handlers with From<std::io::Error> and From<serde_json::Error>
+async fn read_file() -> Result<impl IntoResponse, ApiError> {
+    let content = std::fs::read_to_string("config.json")?;  // auto-converts io::Error
+    let cfg: serde_json::Value = serde_json::from_str(&content)?;  // auto-converts JSON error
+    Ok((axum::http::StatusCode::OK, content))
+}
+```
 ```
 
 Available factory methods:
@@ -109,6 +125,60 @@ async fn health() -> impl IntoResponse {
     }
 }
 ```
+
+### `CursorResponse<T>`
+
+Cursor-based paginated response for large datasets or feeds. Use instead of `ListResponse` when:
+- Total count is expensive to compute
+- Data is streamed or unbounded
+- You're building a feed (social media, notifications, etc.)
+- You need bidirectional navigation via opaque tokens
+
+| Field | Type | Meaning |
+|---|---|---|
+| `data` | `Vec<T>` | Items in this page |
+| `next_cursor` | `Option<String>` | Token for next page; `None` = last page |
+| `has_more` | `bool` | Convenience flag: true if more data exists |
+
+```rust
+use axum::response::IntoResponse;
+use axum_api_kit::CursorResponse;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct Post { id: String, content: String }
+
+async fn feed(cursor: Option<String>) -> impl IntoResponse {
+    let (posts, next_cursor) = fetch_posts(cursor, limit: 20);
+    let has_more = next_cursor.is_some();
+    
+    CursorResponse {
+        data: posts,
+        next_cursor,
+        has_more,
+    }
+}
+```
+
+## Error Propagation with `From` Implementations
+
+Convert common Rust errors directly to `ApiError` (HTTP 500 Internal Error):
+
+```rust
+use std::io;
+use axum_api_kit::ApiError;
+
+async fn handler() -> Result<impl IntoResponse, ApiError> {
+    // These use From<std::io::Error> and From<serde_json::Error>
+    let json = std::fs::read_to_string("data.json")?;
+    let value: serde_json::Value = serde_json::from_str(&json)?;
+    Ok((StatusCode::OK, value.to_string()))
+}
+```
+
+Supported conversions:
+- `std::io::Error` - file I/O failures
+- `serde_json::Error` - JSON parsing errors
 
 ## License
 

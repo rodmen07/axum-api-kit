@@ -135,6 +135,58 @@ impl ApiError {
             Json(Self::new("NOT_IMPLEMENTED", message)),
         )
     }
+
+    /// Attach a source error message to this error.
+    ///
+    /// Stores the source in the details field under the `"source"` key.
+    /// Can be chained with other builder methods.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_api_kit::ApiError;
+    ///
+    /// let err = ApiError::new("NOT_FOUND", "user not found")
+    ///     .with_source("SELECT * FROM users WHERE id = ?")
+    ///     .with_details(serde_json::json!({ "user_id": 42 }));
+    /// ```
+    pub fn with_source(mut self, source: &str) -> Self {
+        let mut details = self.details.take().unwrap_or_else(|| serde_json::json!({}));
+        if let serde_json::Value::Object(ref mut map) = details {
+            map.insert(
+                "source".to_string(),
+                serde_json::Value::String(source.to_string()),
+            );
+        }
+        self.details = Some(details);
+        self
+    }
+}
+
+/// Convert `std::io::Error` to `ApiError` with HTTP 500.
+///
+/// Maps `std::io::Error` to `ApiError::internal()` with the error message.
+/// Enables using the `?` operator in handlers:
+///
+/// ```rust,ignore
+/// async fn handler() -> impl IntoResponse {
+///     let content = std::fs::read_to_string("/data.txt")?;  // auto-converts to ApiError
+///     Ok((StatusCode::OK, content))
+/// }
+/// ```
+impl From<std::io::Error> for ApiError {
+    fn from(err: std::io::Error) -> Self {
+        Self::new("IO_ERROR", format!("IO error: {}", err))
+    }
+}
+
+/// Convert `serde_json::Error` to `ApiError` with HTTP 500.
+///
+/// Maps JSON errors to `ApiError::internal()` with the error message.
+impl From<serde_json::Error> for ApiError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::new("JSON_ERROR", format!("JSON error: {}", err))
+    }
 }
 
 impl fmt::Display for ApiError {
@@ -297,5 +349,47 @@ mod tests {
             StatusCode::NOT_IMPLEMENTED,
             "NOT_IMPLEMENTED"
         );
+    }
+
+    #[test]
+    fn with_source_adds_source_to_details() {
+        let err = ApiError::new("NOT_FOUND", "missing").with_source("db query");
+        let v = serde_json::to_value(&err).unwrap();
+        assert_eq!(v["details"]["source"], "db query");
+        assert_eq!(v["code"], "NOT_FOUND");
+    }
+
+    #[test]
+    fn with_source_and_with_details_both_present() {
+        let err = ApiError::new("ERROR", "msg")
+            .with_details(json!({ "user_id": 123 }))
+            .with_source("from somewhere");
+        let v = serde_json::to_value(&err).unwrap();
+        assert_eq!(v["details"]["source"], "from somewhere");
+        assert_eq!(v["details"]["user_id"], 123);
+    }
+
+    #[test]
+    fn from_io_error_creates_io_error_code() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let api_err: ApiError = io_err.into();
+        assert_eq!(api_err.code, "IO_ERROR");
+        assert!(api_err.message.contains("IO error"));
+    }
+
+    #[test]
+    fn from_serde_json_error_creates_json_error_code() {
+        let json_str = "{ invalid json }";
+        let json_err: Result<serde_json::Value, _> = serde_json::from_str(json_str);
+        let api_err: ApiError = json_err.unwrap_err().into();
+        assert_eq!(api_err.code, "JSON_ERROR");
+        assert!(api_err.message.contains("JSON error"));
+    }
+
+    #[test]
+    fn io_error_conversion_captures_kind() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied");
+        let api_err: ApiError = io_err.into();
+        assert!(api_err.message.contains("permission denied"));
     }
 }
