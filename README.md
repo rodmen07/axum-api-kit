@@ -226,6 +226,35 @@ The resulting `ApiError` uses this shape:
 }
 ```
 
+### sqlx Integration (`sqlx` feature)
+
+Enable the feature to convert `sqlx::Error` into semantically correct `ApiError` responses.
+
+```toml
+axum-api-kit = { version = "0.5", features = ["sqlx"] }
+```
+
+```rust
+use axum::response::IntoResponse;
+use axum_api_kit::ApiError;
+
+async fn get_user(id: i64) -> Result<impl IntoResponse, ApiError> {
+    let user = sqlx::query_as!(User, "SELECT * FROM users WHERE id = $1", id)
+        .fetch_one(&pool)
+        .await?; // RowNotFound -> 404, pool errors -> 503, etc.
+    Ok(axum::Json(user))
+}
+```
+
+| `sqlx::Error` variant | `code` | HTTP |
+|---|---|---|
+| `RowNotFound` | `NOT_FOUND` | 404 |
+| `Database` (unique or FK violation) | `CONFLICT` | 409 |
+| `Database` (check violation) | `VALIDATION_ERROR` | 422 |
+| `Database` (other) | `DB_ERROR` | 500 |
+| `PoolTimedOut` / `PoolClosed` / `WorkerCrashed` | `SERVICE_UNAVAILABLE` | 503 |
+| everything else | `DB_ERROR` | 500 |
+
 ## License
 
 MIT

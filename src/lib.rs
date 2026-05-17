@@ -8,6 +8,8 @@
 //!   for use with Axum's [`IntoResponse`](axum::response::IntoResponse). Supports `From`
 //!   conversions for common error types. With the optional `validator` feature enabled,
 //!   also supports converting `validator::ValidationErrors` into structured field errors.
+//!   With the optional `sqlx` feature enabled, also supports converting `sqlx::Error` into
+//!   semantically correct HTTP status codes (404, 409, 422, 503, 500).
 //! - [`ListResponse<T>`] - a generic offset/limit paginated collection response with `data`,
 //!   `total`, `limit`, and `offset` fields.
 //! - [`CursorResponse<T>`] - a generic cursor-based paginated collection response for large

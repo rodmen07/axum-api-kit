@@ -189,6 +189,40 @@ impl From<serde_json::Error> for ApiError {
     }
 }
 
+/// Convert `sqlx::Error` to an `ApiError` with a semantically appropriate HTTP status.
+///
+/// Requires the `sqlx` feature flag.
+///
+/// | `sqlx::Error` variant | `code` | HTTP |
+/// |---|---|---|
+/// | `RowNotFound` | `NOT_FOUND` | 404 |
+/// | `Database` (unique/FK violation) | `CONFLICT` | 409 |
+/// | `Database` (check violation) | `VALIDATION_ERROR` | 422 |
+/// | `Database` (other) | `DB_ERROR` | 500 |
+/// | `PoolTimedOut` / `PoolClosed` / `WorkerCrashed` | `SERVICE_UNAVAILABLE` | 503 |
+/// | everything else | `DB_ERROR` | 500 |
+#[cfg(feature = "sqlx")]
+impl From<sqlx::Error> for ApiError {
+    fn from(err: sqlx::Error) -> Self {
+        match err {
+            sqlx::Error::RowNotFound => Self::new("NOT_FOUND", "record not found"),
+            sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed => {
+                Self::new("SERVICE_UNAVAILABLE", "database unavailable")
+            }
+            sqlx::Error::Database(db_err) => {
+                if db_err.is_unique_violation() || db_err.is_foreign_key_violation() {
+                    Self::new("CONFLICT", db_err.message().to_string())
+                } else if db_err.is_check_violation() {
+                    Self::new("VALIDATION_ERROR", db_err.message().to_string())
+                } else {
+                    Self::new("DB_ERROR", db_err.message().to_string())
+                }
+            }
+            _ => Self::new("DB_ERROR", format!("database error: {}", err)),
+        }
+    }
+}
+
 #[cfg(feature = "validator")]
 fn collect_validation_errors(
     prefix: Option<&str>,
@@ -508,5 +542,36 @@ mod tests {
         assert_eq!(v["details"]["fields"]["username"][0]["params"]["min"], 3);
         assert_eq!(v["details"]["fields"]["age"][0]["code"], "range");
         assert_eq!(v["details"]["fields"]["age"][0]["params"]["min"], 18);
+    }
+
+    #[cfg(feature = "sqlx")]
+    #[test]
+    fn sqlx_row_not_found_maps_to_not_found() {
+        let api_err: ApiError = sqlx::Error::RowNotFound.into();
+        assert_eq!(api_err.code, "NOT_FOUND");
+        assert_eq!(api_err.message, "record not found");
+    }
+
+    #[cfg(feature = "sqlx")]
+    #[test]
+    fn sqlx_pool_timed_out_maps_to_service_unavailable() {
+        let api_err: ApiError = sqlx::Error::PoolTimedOut.into();
+        assert_eq!(api_err.code, "SERVICE_UNAVAILABLE");
+    }
+
+    #[cfg(feature = "sqlx")]
+    #[test]
+    fn sqlx_pool_closed_maps_to_service_unavailable() {
+        let api_err: ApiError = sqlx::Error::PoolClosed.into();
+        assert_eq!(api_err.code, "SERVICE_UNAVAILABLE");
+    }
+
+    #[cfg(feature = "sqlx")]
+    #[test]
+    fn sqlx_unknown_variant_maps_to_db_error() {
+        // Protocol is a non-pool, non-database variant that hits the catch-all arm.
+        let api_err: ApiError = sqlx::Error::Protocol("unexpected packet".into()).into();
+        assert_eq!(api_err.code, "DB_ERROR");
+        assert!(api_err.message.contains("database error"));
     }
 }

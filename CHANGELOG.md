@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-05-17
+
+### Added
+
+- Optional `sqlx` feature flag with sqlx 0.8 integration.
+- `From<sqlx::Error> for ApiError` (when `sqlx` feature is enabled) with semantic HTTP status mapping: `RowNotFound` -> 404, unique/FK violations -> 409, check violations -> 422, pool errors -> 503, all others -> 500.
+- Feature-gated unit tests for sqlx error conversion paths.
+
 ## [0.4.0] - 2026-05-17
 
 ### Added
