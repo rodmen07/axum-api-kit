@@ -1,0 +1,301 @@
+use axum::{http::StatusCode, Json};
+use serde::Serialize;
+use serde_json::Value;
+use std::fmt;
+
+/// A machine-readable JSON error body.
+///
+/// Serializes as:
+/// ```json
+/// { "code": "NOT_FOUND", "message": "item not found" }
+/// { "code": "VALIDATION_ERROR", "message": "invalid input", "details": { "field": "name" } }
+/// ```
+///
+/// Use the factory methods to get a `(StatusCode, Json<ApiError>)` tuple, which implements
+/// [`IntoResponse`] and can be returned directly from Axum handlers.
+///
+/// # Example
+///
+/// ```rust
+/// use axum::response::IntoResponse;
+/// use axum_api_kit::ApiError;
+///
+/// async fn handler() -> impl IntoResponse {
+///     ApiError::not_found("item not found")
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiError {
+    /// A short, stable, machine-readable error identifier. Use `SCREAMING_SNAKE_CASE`.
+    pub code: String,
+    /// A human-readable description of the error.
+    pub message: String,
+    /// Optional structured details (field-level validation errors, etc.).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+}
+
+impl ApiError {
+    /// Construct a bare `ApiError` without a bundled status code.
+    ///
+    /// Prefer the factory methods ([`not_found`](Self::not_found), etc.) when returning
+    /// responses directly from handlers.
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    /// Attach structured details to this error.
+    pub fn with_details(mut self, details: Value) -> Self {
+        self.details = Some(details);
+        self
+    }
+
+    // --- Factory helpers ---
+    // Each returns (StatusCode, Json<ApiError>) which implements IntoResponse.
+
+    /// `400 Bad Request` with the provided `code` and `message`.
+    pub fn bad_request(
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> (StatusCode, Json<Self>) {
+        (StatusCode::BAD_REQUEST, Json(Self::new(code, message)))
+    }
+
+    /// `401 Unauthorized` - `code` defaults to `"AUTH_REQUIRED"`.
+    pub fn unauthorized(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(Self::new("AUTH_REQUIRED", message)),
+        )
+    }
+
+    /// `403 Forbidden` - `code` defaults to `"FORBIDDEN"`.
+    pub fn forbidden(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (StatusCode::FORBIDDEN, Json(Self::new("FORBIDDEN", message)))
+    }
+
+    /// `404 Not Found` - `code` defaults to `"NOT_FOUND"`.
+    pub fn not_found(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (StatusCode::NOT_FOUND, Json(Self::new("NOT_FOUND", message)))
+    }
+
+    /// `409 Conflict` - `code` defaults to `"CONFLICT"`.
+    pub fn conflict(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (StatusCode::CONFLICT, Json(Self::new("CONFLICT", message)))
+    }
+
+    /// `422 Unprocessable Entity` - `code` defaults to `"VALIDATION_ERROR"`.
+    pub fn unprocessable(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(Self::new("VALIDATION_ERROR", message)),
+        )
+    }
+
+    /// `500 Internal Server Error` - `code` defaults to `"INTERNAL_ERROR"`.
+    pub fn internal(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(Self::new("INTERNAL_ERROR", message)),
+        )
+    }
+
+    /// `500 Internal Server Error` for database failures - `code` is `"DB_ERROR"`.
+    pub fn db_error() -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(Self::new("DB_ERROR", "database error")),
+        )
+    }
+
+    /// `429 Too Many Requests` - `code` defaults to `"RATE_LIMITED"`.
+    pub fn too_many_requests(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(Self::new("RATE_LIMITED", message)),
+        )
+    }
+
+    /// `503 Service Unavailable` - `code` defaults to `"SERVICE_UNAVAILABLE"`.
+    pub fn service_unavailable(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(Self::new("SERVICE_UNAVAILABLE", message)),
+        )
+    }
+
+    /// `501 Not Implemented` - `code` defaults to `"NOT_IMPLEMENTED"`.
+    pub fn not_implemented(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(Self::new("NOT_IMPLEMENTED", message)),
+        )
+    }
+}
+
+impl fmt::Display for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for ApiError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn new_sets_fields() {
+        let err = ApiError::new("MY_CODE", "my message");
+        assert_eq!(err.code, "MY_CODE");
+        assert_eq!(err.message, "my message");
+        assert!(err.details.is_none());
+    }
+
+    #[test]
+    fn with_details_sets_details() {
+        let err = ApiError::new("CODE", "msg").with_details(json!({ "field": "name" }));
+        assert_eq!(err.details.unwrap()["field"], "name");
+    }
+
+    #[test]
+    fn serializes_without_details() {
+        let err = ApiError::new("NOT_FOUND", "item not found");
+        let v = serde_json::to_value(&err).unwrap();
+        assert_eq!(v["code"], "NOT_FOUND");
+        assert_eq!(v["message"], "item not found");
+        assert!(v.get("details").is_none());
+    }
+
+    #[test]
+    fn serializes_with_details() {
+        let err = ApiError::new("VALIDATION_ERROR", "invalid").with_details(json!({ "x": 1 }));
+        let v = serde_json::to_value(&err).unwrap();
+        assert_eq!(v["details"]["x"], 1);
+    }
+
+    #[test]
+    fn display_formats_code_and_message() {
+        let err = ApiError::new("NOT_FOUND", "item not found");
+        assert_eq!(err.to_string(), "NOT_FOUND: item not found");
+    }
+
+    #[test]
+    fn implements_std_error() {
+        let err = ApiError::new("ERR", "something failed");
+        let _: &dyn std::error::Error = &err;
+    }
+
+    macro_rules! assert_factory {
+        ($method:expr, $expected_status:expr, $expected_code:expr) => {{
+            let (status, Json(body)) = $method;
+            assert_eq!(status, $expected_status);
+            assert_eq!(body.code, $expected_code);
+        }};
+    }
+
+    #[test]
+    fn bad_request_status_and_code() {
+        assert_factory!(
+            ApiError::bad_request("INVALID_FIELD", "bad"),
+            StatusCode::BAD_REQUEST,
+            "INVALID_FIELD"
+        );
+    }
+
+    #[test]
+    fn unauthorized_status_and_code() {
+        assert_factory!(
+            ApiError::unauthorized("please log in"),
+            StatusCode::UNAUTHORIZED,
+            "AUTH_REQUIRED"
+        );
+    }
+
+    #[test]
+    fn forbidden_status_and_code() {
+        assert_factory!(
+            ApiError::forbidden("no access"),
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN"
+        );
+    }
+
+    #[test]
+    fn not_found_status_and_code() {
+        assert_factory!(
+            ApiError::not_found("missing"),
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND"
+        );
+    }
+
+    #[test]
+    fn conflict_status_and_code() {
+        assert_factory!(
+            ApiError::conflict("already exists"),
+            StatusCode::CONFLICT,
+            "CONFLICT"
+        );
+    }
+
+    #[test]
+    fn unprocessable_status_and_code() {
+        assert_factory!(
+            ApiError::unprocessable("invalid input"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_ERROR"
+        );
+    }
+
+    #[test]
+    fn internal_status_and_code() {
+        assert_factory!(
+            ApiError::internal("oops"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR"
+        );
+    }
+
+    #[test]
+    fn db_error_status_and_code() {
+        assert_factory!(
+            ApiError::db_error(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR"
+        );
+    }
+
+    #[test]
+    fn too_many_requests_status_and_code() {
+        assert_factory!(
+            ApiError::too_many_requests("slow down"),
+            StatusCode::TOO_MANY_REQUESTS,
+            "RATE_LIMITED"
+        );
+    }
+
+    #[test]
+    fn service_unavailable_status_and_code() {
+        assert_factory!(
+            ApiError::service_unavailable("down for maintenance"),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "SERVICE_UNAVAILABLE"
+        );
+    }
+
+    #[test]
+    fn not_implemented_status_and_code() {
+        assert_factory!(
+            ApiError::not_implemented("coming soon"),
+            StatusCode::NOT_IMPLEMENTED,
+            "NOT_IMPLEMENTED"
+        );
+    }
+}
