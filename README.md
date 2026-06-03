@@ -7,13 +7,17 @@ Every Axum CRUD service defines the same `ApiError`, `HealthResponse`, and pagin
 ## Installation
 
 ```toml
-axum-api-kit = "0.6"
+axum-api-kit = "0.7"
 ```
 
-Optional validator integration:
+Optional integrations are gated behind feature flags:
 
 ```toml
-axum-api-kit = { version = "0.6", features = ["validator"] }
+# request extractors (Pagination, CursorPagination)
+axum-api-kit = { version = "0.7", features = ["extract"] }
+
+# JSON validation (ValidatedJson, From<ValidationErrors>)
+axum-api-kit = { version = "0.7", features = ["validator"] }
 ```
 
 ## Types
@@ -231,7 +235,7 @@ The resulting `ApiError` uses this shape:
 Enable the feature to convert `sqlx::Error` into semantically correct `ApiError` responses.
 
 ```toml
-axum-api-kit = { version = "0.6", features = ["sqlx"] }
+axum-api-kit = { version = "0.7", features = ["sqlx"] }
 ```
 
 ```rust
@@ -254,6 +258,63 @@ async fn get_user(id: i64) -> Result<impl IntoResponse, ApiError> {
 | `Database` (other) | `DB_ERROR` | 500 |
 | `PoolTimedOut` / `PoolClosed` / `WorkerCrashed` | `SERVICE_UNAVAILABLE` | 503 |
 | everything else | `DB_ERROR` | 500 |
+
+### Validated JSON extractor (`validator` feature)
+
+`ValidatedJson<T>` deserializes a JSON body and runs `validator` validation before your
+handler runs, rejecting with an `ApiError` body when either step fails.
+
+```rust
+use axum_api_kit::ValidatedJson;
+use serde::Deserialize;
+use validator::Validate;
+
+#[derive(Deserialize, Validate)]
+struct CreateUser {
+    #[validate(length(min = 1, max = 100))]
+    name: String,
+    #[validate(email)]
+    email: String,
+}
+
+async fn create_user(ValidatedJson(user): ValidatedJson<CreateUser>) {
+    // `user` is deserialized and validated.
+}
+```
+
+| Failure | HTTP | `code` |
+|---|---|---|
+| malformed JSON | 400 | `INVALID_JSON` |
+| well-formed JSON of the wrong shape | 422 | `INVALID_BODY` |
+| missing or incorrect `Content-Type` | 415 | `UNSUPPORTED_MEDIA_TYPE` |
+| validation failure | 422 | `VALIDATION_ERROR` (with field-level `details`) |
+
+### Pagination extractors (`extract` feature)
+
+`Pagination` and `CursorPagination` parse query parameters into typed values and provide
+helpers that build the matching response type. `limit` defaults to `50` and is clamped to
+`1..=100` (`Pagination::DEFAULT_LIMIT` / `Pagination::MAX_LIMIT`); a non-numeric value
+rejects with `400 Bad Request` (`INVALID_QUERY`).
+
+```rust
+use axum_api_kit::{CursorPagination, CursorResponse, ListResponse, Pagination};
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct Item { id: u64 }
+
+// GET /items?limit=25&offset=50
+async fn list(page: Pagination) -> ListResponse<Item> {
+    let items = vec![Item { id: 1 }];
+    page.list_response(items, 1) // -> { data, total, limit, offset }
+}
+
+// GET /feed?cursor=abc123&limit=25
+async fn feed(page: CursorPagination) -> CursorResponse<Item> {
+    let items = vec![Item { id: 1 }];
+    page.cursor_response(items, Some("next".into())) // has_more = next_cursor.is_some()
+}
+```
 
 ## License
 

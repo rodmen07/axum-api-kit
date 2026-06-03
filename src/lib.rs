@@ -17,6 +17,15 @@
 //! - [`HealthResponse`] - a health-check response with `status` field supporting `ok`,
 //!   `degraded`, and `unhealthy` states.
 //!
+//! With optional feature flags enabled, the kit also provides request extractors that
+//! reject with an [`ApiError`] body on failure:
+//!
+//! - `ValidatedJson<T>` (feature `validator`) - deserializes a JSON body and runs
+//!   `validator` validation before the handler runs.
+//! - `Pagination` and `CursorPagination` (feature `extract`) - parse `limit`/`offset` and
+//!   `cursor`/`limit` query parameters into typed values, with `list_response` /
+//!   `cursor_response` helpers that build the matching response type.
+//!
 //! # Quick Start
 //!
 //! ```rust,no_run
@@ -50,8 +59,16 @@ mod cursor;
 mod error;
 mod health;
 mod list;
+#[cfg(feature = "extract")]
+mod pagination;
+#[cfg(feature = "validator")]
+mod validated;
 
 pub use cursor::CursorResponse;
 pub use error::ApiError;
 pub use health::HealthResponse;
 pub use list::ListResponse;
+#[cfg(feature = "extract")]
+pub use pagination::{CursorPagination, Pagination};
+#[cfg(feature = "validator")]
+pub use validated::ValidatedJson;

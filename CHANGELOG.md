@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-03
+
+### Added
+
+- New `extract` feature flag with request extractors:
+  - `Pagination` - parses `limit`/`offset` query parameters; `limit` defaults to 50 and is clamped to `1..=100` (`Pagination::DEFAULT_LIMIT` / `Pagination::MAX_LIMIT`). Includes a `list_response(data, total)` helper that builds a `ListResponse`.
+  - `CursorPagination` - parses an optional `cursor` token plus a clamped `limit`. Includes a `cursor_response(data, next_cursor)` helper that builds a `CursorResponse` and derives `has_more` from the cursor.
+  - Invalid query strings reject with `400 Bad Request` and code `INVALID_QUERY`.
+- `ValidatedJson<T>` extractor (requires the `validator` feature) - deserializes a JSON body and runs `validator` validation before the handler runs. Rejects with semantic `ApiError` bodies: `INVALID_JSON` (400), `INVALID_BODY` (422), `UNSUPPORTED_MEDIA_TYPE` (415), and `VALIDATION_ERROR` (422) with field-level details.
+- Async extractor unit tests behind the relevant features.
+
+### Changed
+
+- The `validator` feature now also enables `validator/derive`, so `#[derive(Validate)]` is available wherever the feature is used.
+- CI now runs clippy and the test suite with `--all-features` (and the default-feature test run) so feature-gated code is exercised.
+
 ## [0.6.0] - 2026-06-03
 
 ### Added
