@@ -1,13 +1,20 @@
 [package]
 name = "axum-api-kit"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
+rust-version = "1.75"
+authors = ["Rod Mendoza <rodmendoza07@gmail.com>"]
 description = "Shared response types for Axum JSON APIs: ApiError, ListResponse, and HealthResponse"
 license = "MIT"
 repository = "https://github.com/rodmen07/axum-api-kit"
+homepage = "https://github.com/rodmen07/axum-api-kit"
+documentation = "https://docs.rs/axum-api-kit"
 keywords = ["axum", "api", "rest", "response", "http"]
 categories = ["web-programming::http-server", "web-programming"]
 readme = "README.md"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = []

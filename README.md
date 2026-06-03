@@ -7,13 +7,13 @@ Every Axum CRUD service defines the same `ApiError`, `HealthResponse`, and pagin
 ## Installation
 
 ```toml
-axum-api-kit = "0.4"
+axum-api-kit = "0.6"
 ```
 
 Optional validator integration:
 
 ```toml
-axum-api-kit = { version = "0.4", features = ["validator"] }
+axum-api-kit = { version = "0.6", features = ["validator"] }
 ```
 
 ## Types
@@ -231,7 +231,7 @@ The resulting `ApiError` uses this shape:
 Enable the feature to convert `sqlx::Error` into semantically correct `ApiError` responses.
 
 ```toml
-axum-api-kit = { version = "0.5", features = ["sqlx"] }
+axum-api-kit = { version = "0.6", features = ["sqlx"] }
 ```
 
 ```rust
