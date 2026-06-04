@@ -32,6 +32,13 @@
 //!   `x-request-id` correlation id (extractable via `RequestId`) and emit a structured
 //!   `tracing` event with method, path, status, and latency for each request.
 //!
+//! And service-wiring helpers:
+//!
+//! - `health_routes` and `liveness` (feature `router`) - a `Router` exposing `/healthz` and
+//!   `/readyz` probes backed by `HealthResponse`.
+//! - `cors_allowing` and `permissive_cors` (feature `cors`) - build a `tower_http`
+//!   `CorsLayer` with sensible defaults.
+//!
 //! # Quick Start
 //!
 //! ```rust,no_run
@@ -61,23 +68,31 @@
 //! }
 //! ```
 
+#[cfg(feature = "cors")]
+mod cors;
 mod cursor;
 mod error;
 mod health;
 mod list;
 #[cfg(feature = "extract")]
 mod pagination;
+#[cfg(feature = "router")]
+mod router;
 #[cfg(feature = "trace")]
 mod trace;
 #[cfg(feature = "validator")]
 mod validated;
 
+#[cfg(feature = "cors")]
+pub use cors::{cors_allowing, permissive_cors};
 pub use cursor::CursorResponse;
 pub use error::ApiError;
 pub use health::HealthResponse;
 pub use list::ListResponse;
 #[cfg(feature = "extract")]
 pub use pagination::{CursorPagination, Pagination};
+#[cfg(feature = "router")]
+pub use router::{health_routes, liveness};
 #[cfg(feature = "trace")]
 pub use trace::{propagate_request_id, trace_requests, RequestId, REQUEST_ID_HEADER};
 #[cfg(feature = "validator")]

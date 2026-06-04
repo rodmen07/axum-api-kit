@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-03
+
+### Added
+
+- New `router` feature flag with service-wiring helpers:
+  - `health_routes(readiness)` - builds a state-generic `Router` with `/healthz` (liveness, always `ok`) and `/readyz` (readiness, runs the supplied async check and returns its `HealthResponse`, so `unhealthy` yields HTTP 503). Mergeable into a stateful app via `app.merge(...)`.
+  - `liveness` - a reusable liveness handler returning `HealthResponse::ok()`.
+- New `cors` feature flag (pulls `tower-http`) with CORS helpers:
+  - `cors_allowing(origins)` - a `CorsLayer` for a known origin allow-list with the common REST methods, `content-type`/`authorization` headers, and credentials enabled.
+  - `permissive_cors()` - a permissive `CorsLayer` for local development.
+- Router-based tests for the health probes and CORS layer (behind the respective features).
+
 ## [0.8.0] - 2026-06-03
 
 ### Added

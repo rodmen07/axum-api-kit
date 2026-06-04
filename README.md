@@ -7,20 +7,26 @@ Every Axum CRUD service defines the same `ApiError`, `HealthResponse`, and pagin
 ## Installation
 
 ```toml
-axum-api-kit = "0.7"
+axum-api-kit = "0.9"
 ```
 
 Optional integrations are gated behind feature flags:
 
 ```toml
 # request extractors (Pagination, CursorPagination)
-axum-api-kit = { version = "0.8", features = ["extract"] }
+axum-api-kit = { version = "0.9", features = ["extract"] }
 
 # JSON validation (ValidatedJson, From<ValidationErrors>)
-axum-api-kit = { version = "0.8", features = ["validator"] }
+axum-api-kit = { version = "0.9", features = ["validator"] }
 
 # observability middleware (request id + tracing)
-axum-api-kit = { version = "0.8", features = ["trace"] }
+axum-api-kit = { version = "0.9", features = ["trace"] }
+
+# health-probe router (/healthz, /readyz)
+axum-api-kit = { version = "0.9", features = ["router"] }
+
+# CORS layer helper (tower-http)
+axum-api-kit = { version = "0.9", features = ["cors"] }
 ```
 
 ## Types
@@ -238,7 +244,7 @@ The resulting `ApiError` uses this shape:
 Enable the feature to convert `sqlx::Error` into semantically correct `ApiError` responses.
 
 ```toml
-axum-api-kit = { version = "0.8", features = ["sqlx"] }
+axum-api-kit = { version = "0.9", features = ["sqlx"] }
 ```
 
 ```rust
@@ -343,6 +349,40 @@ let app: Router = Router::new()
     .route("/", get(handler))
     .layer(middleware::from_fn(trace_requests))
     .layer(middleware::from_fn(propagate_request_id));
+```
+
+### Health-probe router (`router` feature)
+
+`health_routes` returns a `Router` with `/healthz` (liveness, always `ok`) and `/readyz`
+(readiness, runs your async check). It is generic over router state, so it merges into a
+stateful app. Capture whatever the readiness check needs in the closure.
+
+```rust
+use axum::Router;
+use axum_api_kit::{health_routes, HealthResponse};
+
+let app: Router = Router::new().merge(health_routes(|| async {
+    // probe dependencies; return ok / degraded / unhealthy
+    HealthResponse::ok()
+}));
+```
+
+`/readyz` returns the status code of the `HealthResponse` it produces, so `unhealthy()`
+yields `503`.
+
+### CORS helper (`cors` feature)
+
+`cors_allowing` builds a `tower_http` `CorsLayer` for a known origin allow-list (common REST
+methods, `content-type`/`authorization` headers, credentials enabled). `permissive_cors()`
+is available for local development.
+
+```rust
+use axum::{routing::get, Router};
+use axum_api_kit::cors_allowing;
+
+let app: Router = Router::new()
+    .route("/", get(|| async { "ok" }))
+    .layer(cors_allowing(["https://app.example.com"]));
 ```
 
 ## License
