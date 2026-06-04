@@ -26,6 +26,12 @@
 //!   `cursor`/`limit` query parameters into typed values, with `list_response` /
 //!   `cursor_response` helpers that build the matching response type.
 //!
+//! It also ships observability middleware:
+//!
+//! - `propagate_request_id` and `trace_requests` (feature `trace`) - assign an
+//!   `x-request-id` correlation id (extractable via `RequestId`) and emit a structured
+//!   `tracing` event with method, path, status, and latency for each request.
+//!
 //! # Quick Start
 //!
 //! ```rust,no_run
@@ -61,6 +67,8 @@ mod health;
 mod list;
 #[cfg(feature = "extract")]
 mod pagination;
+#[cfg(feature = "trace")]
+mod trace;
 #[cfg(feature = "validator")]
 mod validated;
 
@@ -70,5 +78,7 @@ pub use health::HealthResponse;
 pub use list::ListResponse;
 #[cfg(feature = "extract")]
 pub use pagination::{CursorPagination, Pagination};
+#[cfg(feature = "trace")]
+pub use trace::{propagate_request_id, trace_requests, RequestId, REQUEST_ID_HEADER};
 #[cfg(feature = "validator")]
 pub use validated::ValidatedJson;

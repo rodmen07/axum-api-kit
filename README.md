@@ -14,10 +14,13 @@ Optional integrations are gated behind feature flags:
 
 ```toml
 # request extractors (Pagination, CursorPagination)
-axum-api-kit = { version = "0.7", features = ["extract"] }
+axum-api-kit = { version = "0.8", features = ["extract"] }
 
 # JSON validation (ValidatedJson, From<ValidationErrors>)
-axum-api-kit = { version = "0.7", features = ["validator"] }
+axum-api-kit = { version = "0.8", features = ["validator"] }
+
+# observability middleware (request id + tracing)
+axum-api-kit = { version = "0.8", features = ["trace"] }
 ```
 
 ## Types
@@ -235,7 +238,7 @@ The resulting `ApiError` uses this shape:
 Enable the feature to convert `sqlx::Error` into semantically correct `ApiError` responses.
 
 ```toml
-axum-api-kit = { version = "0.7", features = ["sqlx"] }
+axum-api-kit = { version = "0.8", features = ["sqlx"] }
 ```
 
 ```rust
@@ -314,6 +317,32 @@ async fn feed(page: CursorPagination) -> CursorResponse<Item> {
     let items = vec![Item { id: 1 }];
     page.cursor_response(items, Some("next".into())) // has_more = next_cursor.is_some()
 }
+```
+
+### Observability middleware (`trace` feature)
+
+Two `axum::middleware::from_fn` middlewares for request correlation and structured logging:
+
+- `propagate_request_id` reuses an incoming `x-request-id` header (or mints a UUID v4),
+  stores it in request extensions (extractable via `RequestId`), and echoes it on the
+  response.
+- `trace_requests` emits an `info`-level `tracing` event per request with `method`, `path`,
+  `status`, `latency_ms`, and `request_id`. It is a no-op without a `tracing` subscriber.
+
+```rust
+use axum::{middleware, routing::get, Router};
+use axum_api_kit::{propagate_request_id, trace_requests, RequestId};
+
+async fn handler(RequestId(id): RequestId) -> String {
+    format!("request {id}")
+}
+
+// The last `.layer` is the outermost, so request ids are assigned before
+// trace_requests records its event.
+let app: Router = Router::new()
+    .route("/", get(handler))
+    .layer(middleware::from_fn(trace_requests))
+    .layer(middleware::from_fn(propagate_request_id));
 ```
 
 ## License

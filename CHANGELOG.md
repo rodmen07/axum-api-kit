@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-03
+
+### Added
+
+- New `trace` feature flag with observability middleware:
+  - `propagate_request_id` - Axum middleware that reuses an incoming `x-request-id` header (or generates a UUID v4), stores it in request extensions, and echoes it on the response.
+  - `RequestId` - newtype stored in request extensions, with a `FromRequestParts` impl so handlers can extract the current request's correlation id.
+  - `trace_requests` - Axum middleware that emits an `info`-level `tracing` event per request with `method`, `path`, `status`, `latency_ms`, and `request_id`.
+  - `REQUEST_ID_HEADER` constant (`"x-request-id"`).
+- Router-based integration tests for the middleware (behind the `trace` feature).
+
 ## [0.7.0] - 2026-06-03
 
 ### Added
