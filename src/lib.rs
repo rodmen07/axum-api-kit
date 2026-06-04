@@ -39,6 +39,9 @@
 //! - `cors_allowing` and `permissive_cors` (feature `cors`) - build a `tower_http`
 //!   `CorsLayer` with sensible defaults.
 //!
+//! With the `openapi` feature, all four response types derive `utoipa::ToSchema` so they
+//! can be referenced from a `utoipa` `OpenApi` document and appear in generated specs.
+//!
 //! # Quick Start
 //!
 //! ```rust,no_run

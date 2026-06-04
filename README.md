@@ -7,26 +7,29 @@ Every Axum CRUD service defines the same `ApiError`, `HealthResponse`, and pagin
 ## Installation
 
 ```toml
-axum-api-kit = "0.9"
+axum-api-kit = "0.10"
 ```
 
 Optional integrations are gated behind feature flags:
 
 ```toml
 # request extractors (Pagination, CursorPagination)
-axum-api-kit = { version = "0.9", features = ["extract"] }
+axum-api-kit = { version = "0.10", features = ["extract"] }
 
 # JSON validation (ValidatedJson, From<ValidationErrors>)
-axum-api-kit = { version = "0.9", features = ["validator"] }
+axum-api-kit = { version = "0.10", features = ["validator"] }
 
 # observability middleware (request id + tracing)
-axum-api-kit = { version = "0.9", features = ["trace"] }
+axum-api-kit = { version = "0.10", features = ["trace"] }
 
 # health-probe router (/healthz, /readyz)
-axum-api-kit = { version = "0.9", features = ["router"] }
+axum-api-kit = { version = "0.10", features = ["router"] }
 
 # CORS layer helper (tower-http)
-axum-api-kit = { version = "0.9", features = ["cors"] }
+axum-api-kit = { version = "0.10", features = ["cors"] }
+
+# OpenAPI schemas (utoipa ToSchema on the response types)
+axum-api-kit = { version = "0.10", features = ["openapi"] }
 ```
 
 ## Types
@@ -244,7 +247,7 @@ The resulting `ApiError` uses this shape:
 Enable the feature to convert `sqlx::Error` into semantically correct `ApiError` responses.
 
 ```toml
-axum-api-kit = { version = "0.9", features = ["sqlx"] }
+axum-api-kit = { version = "0.10", features = ["sqlx"] }
 ```
 
 ```rust
@@ -383,6 +386,28 @@ use axum_api_kit::cors_allowing;
 let app: Router = Router::new()
     .route("/", get(|| async { "ok" }))
     .layer(cors_allowing(["https://app.example.com"]));
+```
+
+### OpenAPI schemas (`openapi` feature)
+
+With the `openapi` feature, `ApiError`, `ListResponse<T>`, `CursorResponse<T>`, and
+`HealthResponse` derive [`utoipa::ToSchema`](https://docs.rs/utoipa), so you can reference
+them from your `OpenApi` document and they show up in the generated spec.
+
+```rust
+use axum_api_kit::{ApiError, CursorResponse, HealthResponse, ListResponse};
+use utoipa::OpenApi;
+
+#[derive(OpenApi)]
+#[openapi(components(schemas(
+    ApiError,
+    HealthResponse,
+    ListResponse<String>,
+    CursorResponse<String>,
+)))]
+struct ApiDoc;
+
+let spec = ApiDoc::openapi().to_json().unwrap();
 ```
 
 ## License

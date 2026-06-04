@@ -22,7 +22,9 @@ use serde::Serialize;
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct HealthResponse {
+    #[cfg_attr(feature = "openapi", schema(value_type = String, example = "ok"))]
     pub status: &'static str,
     #[serde(skip)]
     status_code: StatusCode,

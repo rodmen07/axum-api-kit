@@ -25,6 +25,7 @@ use std::fmt;
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ApiError {
     /// A short, stable, machine-readable error identifier. Use `SCREAMING_SNAKE_CASE`.
     pub code: String,
@@ -32,6 +33,7 @@ pub struct ApiError {
     pub message: String,
     /// Optional structured details (field-level validation errors, etc.).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub details: Option<Value>,
 }
 

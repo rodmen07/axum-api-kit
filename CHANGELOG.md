@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-06-03
+
+### Added
+
+- New `openapi` feature flag (pulls `utoipa` 5): `ApiError`, `ListResponse<T>`, `CursorResponse<T>`, and `HealthResponse` derive `utoipa::ToSchema`, so they can be referenced from a `utoipa` `OpenApi` document and appear in generated specs.
+- Integration test verifying the response types register as OpenAPI components.
+
+### Notes
+
+- `ApiError::details` is mapped to an optional `Object` schema; `HealthResponse::status` is mapped to a `String`. Schema derivation only affects builds with the `openapi` feature enabled.
+
 ## [0.9.0] - 2026-06-03
 
 ### Added

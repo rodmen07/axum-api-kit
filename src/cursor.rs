@@ -35,6 +35,7 @@ use serde::Serialize;
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CursorResponse<T: Serialize> {
     /// The items in this page.
     pub data: Vec<T>,
