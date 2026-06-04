@@ -91,7 +91,7 @@ impl ApiError {
     }
 
     /// `422 Unprocessable Entity` - `code` defaults to `"VALIDATION_ERROR"`.
-    pub fn unprocessable(message: impl Into<String>) -> (StatusCode, Json<Self>) {
+    pub fn unprocessable_entity(message: impl Into<String>) -> (StatusCode, Json<Self>) {
         (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(Self::new("VALIDATION_ERROR", message)),
@@ -402,9 +402,9 @@ mod tests {
     }
 
     #[test]
-    fn unprocessable_status_and_code() {
+    fn unprocessable_entity_status_and_code() {
         assert_factory!(
-            ApiError::unprocessable("invalid input"),
+            ApiError::unprocessable_entity("invalid input"),
             StatusCode::UNPROCESSABLE_ENTITY,
             "VALIDATION_ERROR"
         );

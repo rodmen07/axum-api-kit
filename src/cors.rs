@@ -5,7 +5,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 ///
 /// Convenient for local development; prefer [`cors_allowing`] in production so credentialed
 /// requests and a known origin allow-list are handled correctly. Requires the `cors` feature.
-pub fn permissive_cors() -> CorsLayer {
+pub fn cors_permissive() -> CorsLayer {
     CorsLayer::permissive()
 }
 

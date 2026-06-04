@@ -4,32 +4,39 @@ Shared response types for Axum JSON APIs.
 
 Every Axum CRUD service defines the same `ApiError`, `HealthResponse`, and paginated list types. This crate provides one canonical implementation.
 
+## Stability
+
+As of `1.0.0` the public API is stable and follows [semantic versioning](https://semver.org):
+breaking changes will only ship in a new major version. Optional features (`validator`,
+`sqlx`, `extract`, `trace`, `router`, `cors`, `openapi`) track their upstream crates and may
+update those bounds in a minor release.
+
 ## Installation
 
 ```toml
-axum-api-kit = "0.10"
+axum-api-kit = "1"
 ```
 
 Optional integrations are gated behind feature flags:
 
 ```toml
 # request extractors (Pagination, CursorPagination)
-axum-api-kit = { version = "0.10", features = ["extract"] }
+axum-api-kit = { version = "1", features = ["extract"] }
 
 # JSON validation (ValidatedJson, From<ValidationErrors>)
-axum-api-kit = { version = "0.10", features = ["validator"] }
+axum-api-kit = { version = "1", features = ["validator"] }
 
 # observability middleware (request id + tracing)
-axum-api-kit = { version = "0.10", features = ["trace"] }
+axum-api-kit = { version = "1", features = ["trace"] }
 
 # health-probe router (/healthz, /readyz)
-axum-api-kit = { version = "0.10", features = ["router"] }
+axum-api-kit = { version = "1", features = ["router"] }
 
 # CORS layer helper (tower-http)
-axum-api-kit = { version = "0.10", features = ["cors"] }
+axum-api-kit = { version = "1", features = ["cors"] }
 
 # OpenAPI schemas (utoipa ToSchema on the response types)
-axum-api-kit = { version = "0.10", features = ["openapi"] }
+axum-api-kit = { version = "1", features = ["openapi"] }
 ```
 
 ## Types
@@ -95,7 +102,7 @@ Available factory methods:
 | `ApiError::forbidden(msg)` | 403 |
 | `ApiError::not_found(msg)` | 404 |
 | `ApiError::conflict(msg)` | 409 |
-| `ApiError::unprocessable(msg)` | 422 |
+| `ApiError::unprocessable_entity(msg)` | 422 |
 | `ApiError::too_many_requests(msg)` | 429 |
 | `ApiError::internal(msg)` | 500 |
 | `ApiError::not_implemented(msg)` | 501 |
@@ -247,7 +254,7 @@ The resulting `ApiError` uses this shape:
 Enable the feature to convert `sqlx::Error` into semantically correct `ApiError` responses.
 
 ```toml
-axum-api-kit = { version = "0.10", features = ["sqlx"] }
+axum-api-kit = { version = "1", features = ["sqlx"] }
 ```
 
 ```rust
@@ -376,7 +383,7 @@ yields `503`.
 ### CORS helper (`cors` feature)
 
 `cors_allowing` builds a `tower_http` `CorsLayer` for a known origin allow-list (common REST
-methods, `content-type`/`authorization` headers, credentials enabled). `permissive_cors()`
+methods, `content-type`/`authorization` headers, credentials enabled). `cors_permissive()`
 is available for local development.
 
 ```rust

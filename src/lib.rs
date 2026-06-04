@@ -36,7 +36,7 @@
 //!
 //! - `health_routes` and `liveness` (feature `router`) - a `Router` exposing `/healthz` and
 //!   `/readyz` probes backed by `HealthResponse`.
-//! - `cors_allowing` and `permissive_cors` (feature `cors`) - build a `tower_http`
+//! - `cors_allowing` and `cors_permissive` (feature `cors`) - build a `tower_http`
 //!   `CorsLayer` with sensible defaults.
 //!
 //! With the `openapi` feature, all four response types derive `utoipa::ToSchema` so they
@@ -87,7 +87,7 @@ mod trace;
 mod validated;
 
 #[cfg(feature = "cors")]
-pub use cors::{cors_allowing, permissive_cors};
+pub use cors::{cors_allowing, cors_permissive};
 pub use cursor::CursorResponse;
 pub use error::ApiError;
 pub use health::HealthResponse;
