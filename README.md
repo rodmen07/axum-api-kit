@@ -189,6 +189,39 @@ async fn feed(cursor: Option<String>) -> impl IntoResponse {
 }
 ```
 
+### Success responses: `Created<T>`, `Accepted<T>`, `NoContent`
+
+Helpers for the rest of the CRUD lifecycle, complementing `ListResponse` and `ApiError`.
+
+| Type | Status | Body |
+|---|---|---|
+| `Created::new(resource)` | 201 | the resource as JSON |
+| `Created::new(resource).with_location("/users/42")` | 201 | resource as JSON + `Location` header |
+| `Accepted::new(job)` | 202 | the body as JSON |
+| `NoContent` | 204 | empty |
+
+```rust
+use axum::response::IntoResponse;
+use axum_api_kit::{Accepted, Created, NoContent};
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct User { id: String, name: String }
+
+async fn create_user() -> impl IntoResponse {
+    let user = User { id: "42".into(), name: "Ada".into() };
+    Created::new(user).with_location("/users/42") // 201 + Location
+}
+
+async fn enqueue_export() -> impl IntoResponse {
+    Accepted::new(serde_json::json!({ "job_id": "exp-1" })) // 202
+}
+
+async fn delete_user() -> impl IntoResponse {
+    NoContent // 204
+}
+```
+
 ## Error Propagation with `From` Implementations
 
 Convert common Rust errors directly to `ApiError` (HTTP 500 Internal Error):

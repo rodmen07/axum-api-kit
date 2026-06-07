@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-07
+
+### Added
+
+- Success-side response helpers that round out the CRUD response lifecycle:
+  - `Created<T>` - `201 Created` carrying the new resource as a JSON body, with an
+    optional `Location` header via `.with_location(...)` (an invalid header value is
+    omitted rather than panicking).
+  - `Accepted<T>` - `202 Accepted` carrying a JSON body (e.g. a job handle) for work
+    that completes asynchronously.
+  - `NoContent` - `204 No Content` with an empty body, for deletes and empty updates.
+- All three implement `IntoResponse` and are exported from the crate root.
+
+These are purely additive; no existing API changed.
+
 ## [1.0.0] - 2026-06-03
 
 First stable release. The public API is now covered by semantic versioning: breaking

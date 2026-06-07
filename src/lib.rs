@@ -16,6 +16,9 @@
 //!   datasets or feeds, with `data`, `next_cursor`, and `has_more` fields.
 //! - [`HealthResponse`] - a health-check response with `status` field supporting `ok`,
 //!   `degraded`, and `unhealthy` states.
+//! - [`Created<T>`], [`Accepted<T>`], and [`NoContent`] - success-side responses for the
+//!   rest of the CRUD lifecycle: `201 Created` (with an optional `Location` header),
+//!   `202 Accepted`, and `204 No Content`.
 //!
 //! With optional feature flags enabled, the kit also provides request extractors that
 //! reject with an [`ApiError`] body on failure:
@@ -81,6 +84,7 @@ mod list;
 mod pagination;
 #[cfg(feature = "router")]
 mod router;
+mod success;
 #[cfg(feature = "trace")]
 mod trace;
 #[cfg(feature = "validator")]
@@ -96,6 +100,7 @@ pub use list::ListResponse;
 pub use pagination::{CursorPagination, Pagination};
 #[cfg(feature = "router")]
 pub use router::{health_routes, liveness};
+pub use success::{Accepted, Created, NoContent};
 #[cfg(feature = "trace")]
 pub use trace::{propagate_request_id, trace_requests, RequestId, REQUEST_ID_HEADER};
 #[cfg(feature = "validator")]
