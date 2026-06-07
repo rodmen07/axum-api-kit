@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-07
+
+### Added
+
+- `ApiJson<T>` (feature `extract`) - a drop-in replacement for `axum::Json` whose extraction
+  failures reject with an `ApiError` JSON body instead of Axum's default plain-text response
+  (malformed JSON -> 400 `INVALID_JSON`, wrong shape -> 422 `INVALID_BODY`, missing/incorrect
+  `Content-Type` -> 415 `UNSUPPORTED_MEDIA_TYPE`). It also implements `IntoResponse`, so it
+  works as a handler return type like `axum::Json`. Unlike `ValidatedJson`, it needs no
+  `validator` dependency.
+
+### Internal
+
+- The `JsonRejection` -> `ApiError` mapping is now a single shared helper used by both
+  `ValidatedJson` and `ApiJson` (no behavior change to `ValidatedJson`).
+
 ## [1.1.0] - 2026-06-07
 
 ### Added

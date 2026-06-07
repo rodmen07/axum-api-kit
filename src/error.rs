@@ -293,6 +293,29 @@ impl From<validator::ValidationErrors> for ApiError {
     }
 }
 
+/// Map an Axum [`JsonRejection`](axum::extract::rejection::JsonRejection) onto a
+/// `(StatusCode, Json<ApiError>)` with a stable machine-readable code, preserving the
+/// rejection's HTTP status so it stays in sync with Axum.
+///
+/// Shared by the `ValidatedJson` (feature `validator`) and `ApiJson` (feature `extract`)
+/// extractors. Compiled only when at least one of those features is enabled.
+#[cfg(any(feature = "validator", feature = "extract"))]
+pub(crate) fn json_rejection_to_api_error(
+    rejection: axum::extract::rejection::JsonRejection,
+) -> (StatusCode, Json<ApiError>) {
+    use axum::extract::rejection::JsonRejection;
+    let code = match &rejection {
+        JsonRejection::JsonSyntaxError(_) => "INVALID_JSON",
+        JsonRejection::JsonDataError(_) => "INVALID_BODY",
+        JsonRejection::MissingJsonContentType(_) => "UNSUPPORTED_MEDIA_TYPE",
+        _ => "BAD_REQUEST",
+    };
+    (
+        rejection.status(),
+        Json(ApiError::new(code, rejection.body_text())),
+    )
+}
+
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.code, self.message)

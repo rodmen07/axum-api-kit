@@ -20,7 +20,7 @@ axum-api-kit = "1"
 Optional integrations are gated behind feature flags:
 
 ```toml
-# request extractors (Pagination, CursorPagination)
+# request extractors (Pagination, CursorPagination, ApiJson)
 axum-api-kit = { version = "1", features = ["extract"] }
 
 # JSON validation (ValidatedJson, From<ValidationErrors>)
@@ -367,6 +367,33 @@ async fn feed(page: CursorPagination) -> CursorResponse<Item> {
     page.cursor_response(items, Some("next".into())) // has_more = next_cursor.is_some()
 }
 ```
+
+### JSON extractor (`extract` feature)
+
+`ApiJson<T>` is a drop-in replacement for `axum::Json` that rejects with an `ApiError` body
+instead of Axum's default plain-text response. Use it when you want consistent error bodies
+but don't need `validator` validation (otherwise reach for `ValidatedJson`).
+
+| Failure | Status | `code` |
+|---|---|---|
+| malformed JSON | 400 | `INVALID_JSON` |
+| well-formed JSON, wrong shape | 422 | `INVALID_BODY` |
+| missing/incorrect `Content-Type` | 415 | `UNSUPPORTED_MEDIA_TYPE` |
+
+```rust
+use axum_api_kit::ApiJson;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct CreateUser { name: String }
+
+// Bad input becomes a JSON ApiError before the handler runs.
+async fn create_user(ApiJson(user): ApiJson<CreateUser>) {
+    let _ = user.name;
+}
+```
+
+It also implements `IntoResponse`, so it can be returned from handlers like `axum::Json`.
 
 ### Observability middleware (`trace` feature)
 

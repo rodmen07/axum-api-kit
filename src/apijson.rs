@@ -1,55 +1,57 @@
 use axum::{
     extract::{FromRequest, Request},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
-use serde::de::DeserializeOwned;
-use validator::Validate;
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::error::json_rejection_to_api_error;
 use crate::ApiError;
 
-/// An Axum extractor that deserializes a JSON request body and validates it with
-/// [`validator`](https://docs.rs/validator).
+/// A drop-in replacement for [`axum::Json`] whose extraction failures reject with an
+/// [`ApiError`] JSON body instead of Axum's default plain-text response.
 ///
-/// On success it yields `ValidatedJson(value)`. On failure it short-circuits the handler
-/// with a `(StatusCode, Json<ApiError>)` response:
+/// As an extractor it deserializes the request body exactly like `axum::Json`, but on
+/// failure it short-circuits the handler with `(StatusCode, Json<ApiError>)`:
 ///
 /// - malformed JSON -> `400 Bad Request`, code `INVALID_JSON`
 /// - well-formed JSON of the wrong shape -> `422 Unprocessable Entity`, code `INVALID_BODY`
 /// - missing or incorrect `Content-Type` -> `415 Unsupported Media Type`, code
 ///   `UNSUPPORTED_MEDIA_TYPE`
-/// - validation failure -> `422 Unprocessable Entity`, code `VALIDATION_ERROR` with
-///   field-level `details` (see [`ApiError`]'s `From<validator::ValidationErrors>` impl)
 ///
-/// Requires the `validator` feature.
+/// The HTTP status is taken from Axum's own rejection, so it stays correct as Axum evolves.
+/// It also implements [`IntoResponse`] (serializing as `200 OK` JSON), so it can be used as a
+/// handler return type just like `axum::Json`.
+///
+/// Unlike [`ValidatedJson`](crate::ValidatedJson), `ApiJson` performs no validation and so
+/// needs only the `extract` feature, not `validator`. Reach for `ValidatedJson` when you want
+/// `validator`-based field validation as well.
+///
+/// Requires the `extract` feature.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use axum_api_kit::ValidatedJson;
+/// use axum_api_kit::ApiJson;
 /// use serde::Deserialize;
-/// use validator::Validate;
 ///
-/// #[derive(Deserialize, Validate)]
+/// #[derive(Deserialize)]
 /// struct CreateUser {
-///     #[validate(length(min = 1, max = 100))]
 ///     name: String,
-///     #[validate(email)]
-///     email: String,
 /// }
 ///
-/// // The body is deserialized and validated before the handler body runs.
-/// async fn create_user(ValidatedJson(user): ValidatedJson<CreateUser>) {
-///     let _ = (user.name, user.email);
+/// // The body is deserialized before the handler runs; bad input becomes an ApiError body.
+/// async fn create_user(ApiJson(user): ApiJson<CreateUser>) {
+///     let _ = user.name;
 /// }
 /// ```
 #[derive(Debug, Clone)]
-pub struct ValidatedJson<T>(pub T);
+pub struct ApiJson<T>(pub T);
 
-impl<T, S> FromRequest<S> for ValidatedJson<T>
+impl<T, S> FromRequest<S> for ApiJson<T>
 where
-    T: DeserializeOwned + Validate,
+    T: DeserializeOwned,
     S: Send + Sync,
 {
     type Rejection = (StatusCode, Json<ApiError>);
@@ -58,15 +60,13 @@ where
         let Json(value) = Json::<T>::from_request(req, state)
             .await
             .map_err(json_rejection_to_api_error)?;
+        Ok(ApiJson(value))
+    }
+}
 
-        value.validate().map_err(|errors| {
-            (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(ApiError::from(errors)),
-            )
-        })?;
-
-        Ok(ValidatedJson(value))
+impl<T: Serialize> IntoResponse for ApiJson<T> {
+    fn into_response(self) -> Response {
+        Json(self.0).into_response()
     }
 }
 
@@ -76,9 +76,8 @@ mod tests {
     use axum::{body::Body, http::header::CONTENT_TYPE, http::Request};
     use serde::Deserialize;
 
-    #[derive(Debug, Deserialize, Validate)]
+    #[derive(Debug, Deserialize)]
     struct Input {
-        #[validate(length(min = 2))]
         name: String,
     }
 
@@ -88,16 +87,16 @@ mod tests {
             builder = builder.header(CONTENT_TYPE, "application/json");
         }
         let req = builder.body(Body::from(body.to_owned())).unwrap();
-        ValidatedJson::<Input>::from_request(req, &())
+        ApiJson::<Input>::from_request(req, &())
             .await
-            .map(|ValidatedJson(v)| v)
+            .map(|ApiJson(v)| v)
             .map_err(|(status, Json(err))| (status, err))
     }
 
     #[tokio::test]
     async fn valid_body_extracts() {
-        let input = extract(r#"{"name":"abcd"}"#, true).await.unwrap();
-        assert_eq!(input.name, "abcd");
+        let input = extract(r#"{"name":"abc"}"#, true).await.unwrap();
+        assert_eq!(input.name, "abc");
     }
 
     #[tokio::test]
@@ -116,17 +115,23 @@ mod tests {
 
     #[tokio::test]
     async fn missing_content_type_is_unsupported_media_type() {
-        let (status, err) = extract(r#"{"name":"abcd"}"#, false).await.unwrap_err();
+        let (status, err) = extract(r#"{"name":"abc"}"#, false).await.unwrap_err();
         assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
         assert_eq!(err.code, "UNSUPPORTED_MEDIA_TYPE");
     }
 
     #[tokio::test]
-    async fn validation_failure_is_validation_error_with_fields() {
-        let (status, err) = extract(r#"{"name":"a"}"#, true).await.unwrap_err();
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(err.code, "VALIDATION_ERROR");
-        let v = serde_json::to_value(&err).unwrap();
-        assert!(v["details"]["fields"]["name"].is_array());
+    async fn serializes_as_response() {
+        #[derive(Serialize)]
+        struct Out {
+            id: u32,
+        }
+        let res = ApiJson(Out { id: 7 }).into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["id"], 7);
     }
 }

@@ -28,6 +28,8 @@
 //! - `Pagination` and `CursorPagination` (feature `extract`) - parse `limit`/`offset` and
 //!   `cursor`/`limit` query parameters into typed values, with `list_response` /
 //!   `cursor_response` helpers that build the matching response type.
+//! - `ApiJson<T>` (feature `extract`) - a drop-in replacement for `axum::Json` whose
+//!   extraction failures reject with an `ApiError` body instead of Axum's plain-text default.
 //!
 //! It also ships observability middleware:
 //!
@@ -74,6 +76,8 @@
 //! }
 //! ```
 
+#[cfg(feature = "extract")]
+mod apijson;
 #[cfg(feature = "cors")]
 mod cors;
 mod cursor;
@@ -90,6 +94,8 @@ mod trace;
 #[cfg(feature = "validator")]
 mod validated;
 
+#[cfg(feature = "extract")]
+pub use apijson::ApiJson;
 #[cfg(feature = "cors")]
 pub use cors::{cors_allowing, cors_permissive};
 pub use cursor::CursorResponse;
