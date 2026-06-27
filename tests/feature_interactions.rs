@@ -3,8 +3,7 @@
 use axum::{
     body::Body,
     http::{Request, StatusCode},
-    middleware,
-    Router,
+    middleware, Router,
 };
 use axum_api_kit::{
     cors_allowing, health_routes, propagate_request_id, trace_requests, HealthResponse,
@@ -33,7 +32,10 @@ async fn healthz_with_trace_and_cors_echoes_request_id_and_origin() {
         .unwrap();
 
     assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(res.headers().get(REQUEST_ID_HEADER).unwrap(), "trace-test-id");
+    assert_eq!(
+        res.headers().get(REQUEST_ID_HEADER).unwrap(),
+        "trace-test-id"
+    );
     assert_eq!(
         res.headers().get("access-control-allow-origin").unwrap(),
         "https://app.example.com"
