@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-06-27
+
+### Added
+
+- Added extractor-level ApiJson tests that lock in acceptance of
+  `application/json; charset=utf-8` and vendor `+json` media types.
+
 ## [1.2.6] - 2026-06-27
 
 ### Added

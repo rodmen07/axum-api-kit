@@ -81,10 +81,13 @@ mod tests {
         name: String,
     }
 
-    async fn extract(body: &str, with_content_type: bool) -> Result<Input, (StatusCode, ApiError)> {
+    async fn extract(
+        body: &str,
+        content_type: Option<&str>,
+    ) -> Result<Input, (StatusCode, ApiError)> {
         let mut builder = Request::builder().method("POST").uri("/");
-        if with_content_type {
-            builder = builder.header(CONTENT_TYPE, "application/json");
+        if let Some(value) = content_type {
+            builder = builder.header(CONTENT_TYPE, value);
         }
         let req = builder.body(Body::from(body.to_owned())).unwrap();
         ApiJson::<Input>::from_request(req, &())
@@ -95,29 +98,54 @@ mod tests {
 
     #[tokio::test]
     async fn valid_body_extracts() {
-        let input = extract(r#"{"name":"abc"}"#, true).await.unwrap();
+        let input = extract(r#"{"name":"abc"}"#, Some("application/json"))
+            .await
+            .unwrap();
         assert_eq!(input.name, "abc");
     }
 
     #[tokio::test]
     async fn malformed_json_is_invalid_json() {
-        let (status, err) = extract("{not json", true).await.unwrap_err();
+        let (status, err) = extract("{not json", Some("application/json"))
+            .await
+            .unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(err.code, "INVALID_JSON");
     }
 
     #[tokio::test]
     async fn wrong_shape_is_invalid_body() {
-        let (status, err) = extract(r#"{"name":123}"#, true).await.unwrap_err();
+        let (status, err) = extract(r#"{"name":123}"#, Some("application/json"))
+            .await
+            .unwrap_err();
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(err.code, "INVALID_BODY");
     }
 
     #[tokio::test]
     async fn missing_content_type_is_unsupported_media_type() {
-        let (status, err) = extract(r#"{"name":"abc"}"#, false).await.unwrap_err();
+        let (status, err) = extract(r#"{"name":"abc"}"#, None).await.unwrap_err();
         assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
         assert_eq!(err.code, "UNSUPPORTED_MEDIA_TYPE");
+    }
+
+    #[tokio::test]
+    async fn json_with_charset_is_accepted() {
+        let input = extract(
+            r#"{"name":"abc"}"#,
+            Some("application/json; charset=utf-8"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(input.name, "abc");
+    }
+
+    #[tokio::test]
+    async fn vendor_plus_json_is_accepted() {
+        let input = extract(r#"{"name":"abc"}"#, Some("application/vnd.api+json"))
+            .await
+            .unwrap();
+        assert_eq!(input.name, "abc");
     }
 
     #[tokio::test]
