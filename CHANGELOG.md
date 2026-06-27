@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-06-27
+
+### Added
+
+- New cross-feature integration tests behind `router + trace + cors` in
+  `tests/feature_interactions.rs`, covering:
+  - request-id propagation in health endpoints when tracing middleware is active
+  - CORS allow-origin behavior when health routes are merged and layered
+  - unhealthy readiness responses retaining correlation headers
+
+### Changed
+
+- Internal formatting-only cleanup to keep the repository green under strict
+  `cargo fmt --check` CI gates.
+
 ## [1.2.0] - 2026-06-07
 
 ### Added
