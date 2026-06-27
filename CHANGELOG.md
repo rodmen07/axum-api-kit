@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-06-27
+
+### Added
+
+- Additional ApiJson interaction coverage for wrong `Content-Type` requests,
+  verifying `415 UNSUPPORTED_MEDIA_TYPE` rejections preserve request-id and
+  CORS headers when trace and CORS middleware are layered.
+
 ## [1.2.2] - 2026-06-27
 
 ### Added
