@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   malformed JSON and unsupported media type inputs.
 - Cross-feature interaction coverage proving ApiJson rejections preserve
   correlation and CORS headers when composed with trace and CORS middleware.
+- Additional ApiJson interaction coverage for wrong-shape JSON rejections
+  (`422 INVALID_BODY`) while preserving request-id and CORS headers.
 
 ## [1.2.1] - 2026-06-27
 

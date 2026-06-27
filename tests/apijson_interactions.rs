@@ -88,3 +88,42 @@ async fn unsupported_media_type_rejection_is_structured() {
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["code"], "UNSUPPORTED_MEDIA_TYPE");
 }
+
+#[tokio::test]
+async fn wrong_shape_rejection_is_invalid_body_and_keeps_headers() {
+    let app: Router = Router::new()
+        .route("/widgets", post(create_widget))
+        .layer(cors_allowing(["https://app.example.com"]))
+        .layer(middleware::from_fn(trace_requests))
+        .layer(middleware::from_fn(propagate_request_id));
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/widgets")
+                .header("origin", "https://app.example.com")
+                .header(REQUEST_ID_HEADER, "req-wrong-shape")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"name":123}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        res.headers().get(REQUEST_ID_HEADER).unwrap(),
+        "req-wrong-shape"
+    );
+    assert_eq!(
+        res.headers().get("access-control-allow-origin").unwrap(),
+        "https://app.example.com"
+    );
+
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "INVALID_BODY");
+}
