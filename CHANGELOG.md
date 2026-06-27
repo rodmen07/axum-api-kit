@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-06-27
+
+### Added
+
+- New ApiJson interaction coverage proving vendor `+json` media types (for
+  example `application/vnd.api+json`) are accepted while preserving request-id
+  and CORS headers under layered trace + CORS middleware.
+
 ## [1.2.5] - 2026-06-27
 
 ### Added

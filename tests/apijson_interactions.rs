@@ -240,3 +240,39 @@ async fn json_content_type_with_charset_is_accepted_and_keeps_headers() {
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["id"], "widget-alpha");
 }
+
+#[tokio::test]
+async fn vendor_plus_json_content_type_is_accepted_and_keeps_headers() {
+    let app: Router = Router::new()
+        .route("/widgets", post(create_widget))
+        .layer(cors_allowing(["https://app.example.com"]))
+        .layer(middleware::from_fn(trace_requests))
+        .layer(middleware::from_fn(propagate_request_id));
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/widgets")
+                .header("origin", "https://app.example.com")
+                .header(REQUEST_ID_HEADER, "req-vendor-json")
+                .header("content-type", "application/vnd.api+json")
+                .body(Body::from(r#"{"name":"alpha"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.headers().get(REQUEST_ID_HEADER).unwrap(), "req-vendor-json");
+    assert_eq!(
+        res.headers().get("access-control-allow-origin").unwrap(),
+        "https://app.example.com"
+    );
+
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["id"], "widget-alpha");
+}
