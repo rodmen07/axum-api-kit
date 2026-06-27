@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-06-27
+
+### Added
+
+- New ApiJson interaction coverage proving `application/json; charset=utf-8`
+  requests are accepted through layered trace + CORS middleware while
+  preserving request-id and CORS headers on successful responses.
+
 ## [1.2.3] - 2026-06-27
 
 ### Added
