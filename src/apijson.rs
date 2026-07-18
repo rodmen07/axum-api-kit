@@ -131,12 +131,9 @@ mod tests {
 
     #[tokio::test]
     async fn json_with_charset_is_accepted() {
-        let input = extract(
-            r#"{"name":"abc"}"#,
-            Some("application/json; charset=utf-8"),
-        )
-        .await
-        .unwrap();
+        let input = extract(r#"{"name":"abc"}"#, Some("application/json; charset=utf-8"))
+            .await
+            .unwrap();
         assert_eq!(input.name, "abc");
     }
 

@@ -52,7 +52,10 @@ async fn invalid_json_rejection_is_structured_and_keeps_correlation_headers() {
         .unwrap();
 
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(res.headers().get(REQUEST_ID_HEADER).unwrap(), "req-bad-json");
+    assert_eq!(
+        res.headers().get(REQUEST_ID_HEADER).unwrap(),
+        "req-bad-json"
+    );
     assert_eq!(
         res.headers().get("access-control-allow-origin").unwrap(),
         "https://app.example.com"
@@ -228,7 +231,10 @@ async fn json_content_type_with_charset_is_accepted_and_keeps_headers() {
         .unwrap();
 
     assert_eq!(res.status(), StatusCode::CREATED);
-    assert_eq!(res.headers().get(REQUEST_ID_HEADER).unwrap(), "req-charset-json");
+    assert_eq!(
+        res.headers().get(REQUEST_ID_HEADER).unwrap(),
+        "req-charset-json"
+    );
     assert_eq!(
         res.headers().get("access-control-allow-origin").unwrap(),
         "https://app.example.com"
@@ -264,7 +270,10 @@ async fn vendor_plus_json_content_type_is_accepted_and_keeps_headers() {
         .unwrap();
 
     assert_eq!(res.status(), StatusCode::CREATED);
-    assert_eq!(res.headers().get(REQUEST_ID_HEADER).unwrap(), "req-vendor-json");
+    assert_eq!(
+        res.headers().get(REQUEST_ID_HEADER).unwrap(),
+        "req-vendor-json"
+    );
     assert_eq!(
         res.headers().get("access-control-allow-origin").unwrap(),
         "https://app.example.com"
