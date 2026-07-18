@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-18
+
+### Added
+
+- New `problem` feature (no new dependencies): RFC 9457 `Problem` response type emitting
+  `Content-Type: application/problem+json`, with chainable builders (`with_type`,
+  `with_detail`, `with_instance`, `with_extension`, `with_retry_after`), the
+  `APPLICATION_PROBLEM_JSON` constant, lossless `From<(StatusCode, ApiError)>` and
+  `From<(StatusCode, Json<ApiError>)>` bridges, and `ApiError::into_problem`.
+  Accept-header content negotiation and problem+json extractor rejections are explicitly
+  out of scope for this release.
+- Always-on `ApiError::too_many_requests_with_retry_after` and
+  `ApiError::service_unavailable_with_retry_after` factories emitting a delay-seconds
+  `Retry-After` header with the standard `{code, message}` JSON body.
+
 ## [1.2.7] - 2026-06-27
 
 ### Added
