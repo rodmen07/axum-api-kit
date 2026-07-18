@@ -5,7 +5,9 @@
 //!
 //! - [`ApiError`] - a machine-readable JSON error body with `code`, `message`, and optional
 //!   `details`, plus factory helpers that return `(StatusCode, Json<ApiError>)` tuples ready
-//!   for use with Axum's [`IntoResponse`](axum::response::IntoResponse). Supports `From`
+//!   for use with Axum's [`IntoResponse`](axum::response::IntoResponse). The
+//!   `too_many_requests_with_retry_after` and `service_unavailable_with_retry_after`
+//!   factories additionally emit a delay-seconds `Retry-After` header. Supports `From`
 //!   conversions for common error types. With the optional `validator` feature enabled,
 //!   also supports converting `validator::ValidationErrors` into structured field errors.
 //!   With the optional `sqlx` feature enabled, also supports converting `sqlx::Error` into
@@ -43,6 +45,12 @@
 //!   `/readyz` probes backed by `HealthResponse`.
 //! - `cors_allowing` and `cors_permissive` (feature `cors`) - build a `tower_http`
 //!   `CorsLayer` with sensible defaults.
+//!
+//! And an RFC 9457 error format:
+//!
+//! - `Problem` (feature `problem`) - an RFC 9457 problem+json response type with builder
+//!   methods, lossless bridges from [`ApiError`], and Retry-After support. Emits
+//!   `Content-Type: application/problem+json`.
 //!
 //! With the `openapi` feature, all four response types derive `utoipa::ToSchema` so they
 //! can be referenced from a `utoipa` `OpenApi` document and appear in generated specs.
@@ -86,6 +94,8 @@ mod health;
 mod list;
 #[cfg(feature = "extract")]
 mod pagination;
+#[cfg(feature = "problem")]
+mod problem;
 #[cfg(feature = "router")]
 mod router;
 mod success;
@@ -104,6 +114,8 @@ pub use health::HealthResponse;
 pub use list::ListResponse;
 #[cfg(feature = "extract")]
 pub use pagination::{CursorPagination, Pagination};
+#[cfg(feature = "problem")]
+pub use problem::{Problem, APPLICATION_PROBLEM_JSON};
 #[cfg(feature = "router")]
 pub use router::{health_routes, liveness};
 pub use success::{Accepted, Created, NoContent};

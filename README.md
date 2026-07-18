@@ -8,8 +8,8 @@ Every Axum CRUD service defines the same `ApiError`, `HealthResponse`, and pagin
 
 As of `1.0.0` the public API is stable and follows [semantic versioning](https://semver.org):
 breaking changes will only ship in a new major version. Optional features (`validator`,
-`sqlx`, `extract`, `trace`, `router`, `cors`, `openapi`) track their upstream crates and may
-update those bounds in a minor release.
+`sqlx`, `extract`, `trace`, `router`, `cors`, `openapi`, `problem`) track their upstream
+crates and may update those bounds in a minor release.
 
 ## Installation
 
@@ -37,6 +37,9 @@ axum-api-kit = { version = "1", features = ["cors"] }
 
 # OpenAPI schemas (utoipa ToSchema on the response types)
 axum-api-kit = { version = "1", features = ["openapi"] }
+
+# RFC 9457 problem+json responses (Problem)
+axum-api-kit = { version = "1", features = ["problem"] }
 ```
 
 ## Types
@@ -108,6 +111,23 @@ Available factory methods:
 | `ApiError::not_implemented(msg)` | 501 |
 | `ApiError::db_error()` | 500 |
 | `ApiError::service_unavailable(msg)` | 503 |
+| `ApiError::too_many_requests_with_retry_after(msg, duration)` | 429 + `Retry-After` |
+| `ApiError::service_unavailable_with_retry_after(msg, duration)` | 503 + `Retry-After` |
+
+The `_with_retry_after` variants of `too_many_requests` and `service_unavailable` also emit
+a delay-seconds `Retry-After` header (the duration is rounded up to whole seconds, so
+1500ms becomes `"2"`) while keeping the same `{ "code", "message" }` JSON body:
+
+```rust
+use axum::response::IntoResponse;
+use axum_api_kit::ApiError;
+use std::time::Duration;
+
+async fn rate_limited_with_header() -> impl IntoResponse {
+    // 429 + Retry-After: 30 + {"code":"RATE_LIMITED","message":"slow down"}
+    ApiError::too_many_requests_with_retry_after("slow down", Duration::from_secs(30))
+}
+```
 
 ### `ListResponse<T>`
 
@@ -221,6 +241,56 @@ async fn delete_user() -> impl IntoResponse {
     NoContent // 204
 }
 ```
+
+### `Problem` (RFC 9457)
+
+With the `problem` feature (no new dependencies), `Problem` is an
+[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details response that emits
+`Content-Type: application/problem+json`. Use it when the error format needs to
+interoperate with gateways, OpenAPI tooling, or polyglot clients; `ApiError`'s flat shape
+remains the default.
+
+```rust
+use axum::{http::StatusCode, response::IntoResponse};
+use axum_api_kit::Problem;
+
+async fn out_of_credit() -> impl IntoResponse {
+    Problem::new(StatusCode::FORBIDDEN, "Insufficient credit")
+        .with_type("https://example.com/probs/out-of-credit")
+        .with_detail("Balance is 30, item costs 50")
+        .with_instance("/account/12345/msgs/abc")
+        .with_extension("balance", 30)
+}
+```
+
+Serves HTTP 403 with `Content-Type: application/problem+json` and this body:
+
+```json
+{
+    "type": "https://example.com/probs/out-of-credit",
+    "title": "Insufficient credit",
+    "status": 403,
+    "detail": "Balance is 30, item costs 50",
+    "instance": "/account/12345/msgs/abc",
+    "balance": 30
+}
+```
+
+An existing `ApiError` (or a factory tuple) bridges over losslessly in one line:
+
+```rust
+use axum::http::StatusCode;
+use axum_api_kit::{ApiError, Problem};
+
+// {"title":"Not Found","status":404,"detail":"account not found","code":"NOT_FOUND"}
+let problem = Problem::from(ApiError::not_found("account not found"));
+
+// or via the method form:
+let problem = ApiError::new("NOT_FOUND", "account not found").into_problem(StatusCode::NOT_FOUND);
+```
+
+`with_retry_after(duration)` emits a delay-seconds `Retry-After` header; the delay is
+header-only and never appears in the JSON body.
 
 ## Error Propagation with `From` Implementations
 

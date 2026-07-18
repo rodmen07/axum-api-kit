@@ -1,4 +1,7 @@
-use axum::{http::StatusCode, Json};
+use axum::{
+    http::{header::RETRY_AFTER, HeaderName, HeaderValue, StatusCode},
+    Json,
+};
 use serde::Serialize;
 use serde_json::Value;
 use std::fmt;
@@ -122,10 +125,71 @@ impl ApiError {
         )
     }
 
+    /// `429 Too Many Requests` with a delay-seconds `Retry-After` header - `code` defaults
+    /// to `"RATE_LIMITED"`.
+    ///
+    /// The tuple return type implements [`IntoResponse`](axum::response::IntoResponse), so
+    /// handlers can return it directly. The body is the standard `{ "code", "message" }`
+    /// shape; `retry_after` is rounded up to whole seconds (1500ms becomes `"2"`).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum::response::IntoResponse;
+    /// use axum_api_kit::ApiError;
+    /// use std::time::Duration;
+    ///
+    /// async fn handler() -> impl IntoResponse {
+    ///     ApiError::too_many_requests_with_retry_after("slow down", Duration::from_secs(30))
+    /// }
+    /// ```
+    pub fn too_many_requests_with_retry_after(
+        message: impl Into<String>,
+        retry_after: std::time::Duration,
+    ) -> (StatusCode, [(HeaderName, HeaderValue); 1], Json<Self>) {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(RETRY_AFTER, HeaderValue::from(ceil_secs(retry_after)))],
+            Json(Self::new("RATE_LIMITED", message)),
+        )
+    }
+
     /// `503 Service Unavailable` - `code` defaults to `"SERVICE_UNAVAILABLE"`.
     pub fn service_unavailable(message: impl Into<String>) -> (StatusCode, Json<Self>) {
         (
             StatusCode::SERVICE_UNAVAILABLE,
+            Json(Self::new("SERVICE_UNAVAILABLE", message)),
+        )
+    }
+
+    /// `503 Service Unavailable` with a delay-seconds `Retry-After` header - `code` defaults
+    /// to `"SERVICE_UNAVAILABLE"`.
+    ///
+    /// The tuple return type implements [`IntoResponse`](axum::response::IntoResponse), so
+    /// handlers can return it directly. The body is the standard `{ "code", "message" }`
+    /// shape; `retry_after` is rounded up to whole seconds (1500ms becomes `"2"`).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum::response::IntoResponse;
+    /// use axum_api_kit::ApiError;
+    /// use std::time::Duration;
+    ///
+    /// async fn handler() -> impl IntoResponse {
+    ///     ApiError::service_unavailable_with_retry_after(
+    ///         "down for maintenance",
+    ///         Duration::from_secs(120),
+    ///     )
+    /// }
+    /// ```
+    pub fn service_unavailable_with_retry_after(
+        message: impl Into<String>,
+        retry_after: std::time::Duration,
+    ) -> (StatusCode, [(HeaderName, HeaderValue); 1], Json<Self>) {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(RETRY_AFTER, HeaderValue::from(ceil_secs(retry_after)))],
             Json(Self::new("SERVICE_UNAVAILABLE", message)),
         )
     }
@@ -163,6 +227,47 @@ impl ApiError {
         self.details = Some(details);
         self
     }
+
+    /// Convert this error into an RFC 9457 [`Problem`](crate::Problem) response for the
+    /// given status.
+    ///
+    /// Requires the `problem` feature flag.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum::http::StatusCode;
+    /// use axum_api_kit::ApiError;
+    /// use serde_json::json;
+    ///
+    /// let problem = ApiError::new("NOT_FOUND", "item 42 does not exist")
+    ///     .with_details(json!({ "id": 42 }))
+    ///     .into_problem(StatusCode::NOT_FOUND);
+    ///
+    /// assert_eq!(
+    ///     serde_json::to_value(&problem).unwrap(),
+    ///     json!({
+    ///         "title": "Not Found",
+    ///         "status": 404,
+    ///         "detail": "item 42 does not exist",
+    ///         "code": "NOT_FOUND",
+    ///         "details": { "id": 42 }
+    ///     })
+    /// );
+    /// ```
+    #[cfg(feature = "problem")]
+    pub fn into_problem(self, status: StatusCode) -> crate::Problem {
+        crate::Problem::from((status, self))
+    }
+}
+
+/// Round a [`Duration`](std::time::Duration) up to whole seconds for delay-seconds
+/// `Retry-After` header values.
+///
+/// Shared by the `_with_retry_after` factory helpers and by
+/// `Problem::into_response` (feature `problem`).
+pub(crate) fn ceil_secs(d: std::time::Duration) -> u64 {
+    d.as_secs() + u64::from(d.subsec_nanos() > 0)
 }
 
 /// Convert `std::io::Error` to `ApiError` with HTTP 500.
@@ -475,6 +580,62 @@ mod tests {
             ApiError::not_implemented("coming soon"),
             StatusCode::NOT_IMPLEMENTED,
             "NOT_IMPLEMENTED"
+        );
+    }
+
+    #[test]
+    fn ceil_secs_rounds_up_to_whole_seconds() {
+        use std::time::Duration;
+        assert_eq!(ceil_secs(Duration::from_secs(0)), 0);
+        assert_eq!(ceil_secs(Duration::from_secs(2)), 2);
+        assert_eq!(ceil_secs(Duration::from_millis(1500)), 2);
+    }
+
+    #[test]
+    fn too_many_requests_with_retry_after_status_header_and_body() {
+        let (status, [(name, value)], Json(body)) = ApiError::too_many_requests_with_retry_after(
+            "slow down",
+            std::time::Duration::from_secs(30),
+        );
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(name, RETRY_AFTER);
+        assert_eq!(value, "30");
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            json!({ "code": "RATE_LIMITED", "message": "slow down" })
+        );
+    }
+
+    #[test]
+    fn service_unavailable_with_retry_after_status_header_and_body() {
+        let (status, [(name, value)], Json(body)) = ApiError::service_unavailable_with_retry_after(
+            "down for maintenance",
+            std::time::Duration::from_secs(30),
+        );
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(name, RETRY_AFTER);
+        assert_eq!(value, "30");
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            json!({ "code": "SERVICE_UNAVAILABLE", "message": "down for maintenance" })
+        );
+    }
+
+    #[cfg(feature = "problem")]
+    #[test]
+    fn into_problem_reproduces_reference_wire_shape() {
+        let problem = ApiError::new("NOT_FOUND", "item 42 does not exist")
+            .with_details(json!({ "id": 42 }))
+            .into_problem(StatusCode::NOT_FOUND);
+        assert_eq!(
+            serde_json::to_value(&problem).unwrap(),
+            json!({
+                "title": "Not Found",
+                "status": 404,
+                "detail": "item 42 does not exist",
+                "code": "NOT_FOUND",
+                "details": { "id": 42 }
+            })
         );
     }
 

@@ -25,6 +25,7 @@ trace = ["dep:tracing", "dep:uuid"]
 router = []
 cors = ["dep:tower-http"]
 openapi = ["dep:utoipa"]
+problem = []
 
 [dependencies]
 axum = { version = "0.8", default-features = false, features = ["json"] }
