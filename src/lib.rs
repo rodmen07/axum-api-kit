@@ -54,6 +54,12 @@
 //!   negotiation (the `ProblemFormat` extractor plus `Problem::into_response_for` /
 //!   `Problem::into_response_with`) that serves the same body as plain `application/json`
 //!   only when the client strictly prefers it.
+//! - `ProblemJson<T>` (features `problem` + `extract`) and `ProblemValidatedJson<T>`
+//!   (features `problem` + `validator`) - problem-flavored siblings of `ApiJson` /
+//!   `ValidatedJson` whose extraction failures reject with an RFC 9457 body via
+//!   `ProblemRejection` (same status codes, same `code` and field-level details,
+//!   `Content-Type` negotiated via `ProblemFormat`). The existing extractors' rejection
+//!   bodies never change; the format is chosen by naming the extractor in the handler.
 //!
 //! With the `openapi` feature, all four response types derive `utoipa::ToSchema` so they
 //! can be referenced from a `utoipa` `OpenApi` document and appear in generated specs.
@@ -99,6 +105,8 @@ mod list;
 mod pagination;
 #[cfg(feature = "problem")]
 mod problem;
+#[cfg(all(feature = "problem", any(feature = "extract", feature = "validator")))]
+mod problemjson;
 #[cfg(feature = "router")]
 mod router;
 mod success;
@@ -119,6 +127,12 @@ pub use list::ListResponse;
 pub use pagination::{CursorPagination, Pagination};
 #[cfg(feature = "problem")]
 pub use problem::{Problem, ProblemFormat, APPLICATION_PROBLEM_JSON};
+#[cfg(all(feature = "problem", feature = "extract"))]
+pub use problemjson::ProblemJson;
+#[cfg(all(feature = "problem", any(feature = "extract", feature = "validator")))]
+pub use problemjson::ProblemRejection;
+#[cfg(all(feature = "problem", feature = "validator"))]
+pub use problemjson::ProblemValidatedJson;
 #[cfg(feature = "router")]
 pub use router::{health_routes, liveness};
 pub use success::{Accepted, Created, NoContent};
