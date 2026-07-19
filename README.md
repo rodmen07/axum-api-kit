@@ -11,6 +11,8 @@ breaking changes will only ship in a new major version. Optional features (`vali
 `sqlx`, `extract`, `trace`, `router`, `cors`, `openapi`, `problem`) track their upstream
 crates and may update those bounds in a minor release.
 
+See [ROADMAP.md](ROADMAP.md) for the full post-1.0 maintenance policy (MSRV, dependency tracking, 2.0 triggers).
+
 ## Installation
 
 ```toml
