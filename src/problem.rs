@@ -34,12 +34,22 @@
 //! live on [`ProblemFormat::negotiate`]; every ambiguous case, including no
 //! `Accept` header and `*/*`, stays `application/problem+json`.
 //!
+//! # problem+json extractor rejections (opt-in)
+//!
+//! The [`ProblemJson`](crate::ProblemJson) (features `problem` + `extract`)
+//! and [`ProblemValidatedJson`](crate::ProblemValidatedJson) (features
+//! `problem` + `validator`) extractors are the problem-flavored siblings of
+//! [`ApiJson`](crate::ApiJson) and [`ValidatedJson`](crate::ValidatedJson):
+//! same deserialization, validation, and status codes, but failures reject
+//! with an RFC 9457 body (`Content-Type` negotiated via [`ProblemFormat`]).
+//! The existing extractors' rejection bodies are frozen and never change; the
+//! format is chosen by naming the extractor in the handler signature.
+//!
 //! # Out of scope
 //!
-//! - A problem+json rejection mode for `ValidatedJson` / `ApiJson`.
 //! - HTTP-date `Retry-After` values (only delay-seconds are emitted).
 //!
-//! Both are candidates for a future minor release.
+//! A candidate for a future minor release.
 
 use std::convert::Infallible;
 

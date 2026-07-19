@@ -320,6 +320,51 @@ equal preference, unparseable values) keeps `application/problem+json`. The matc
 deliberately minimal, not a full RFC 9110 implementation; the exact rules are documented
 on `ProblemFormat::negotiate`.
 
+#### problem+json extractor rejections (opt-in)
+
+`ApiJson` and `ValidatedJson` rejection bodies never change. To get RFC 9457 rejections
+instead, swap in the problem-flavored siblings: `ProblemJson<T>` (features `problem` +
+`extract`) and `ProblemValidatedJson<T>` (features `problem` + `validator`). Same
+deserialization, validation, and status codes; only the failure body format differs.
+The format is chosen by naming the extractor in the handler signature, so enabling the
+`problem` feature alone (for example through an unrelated dependency) changes nothing.
+
+```rust
+use axum_api_kit::ProblemValidatedJson;
+use serde::Deserialize;
+use validator::Validate;
+
+#[derive(Deserialize, Validate)]
+struct CreateAccount {
+    #[validate(length(min = 2))]
+    name: String,
+}
+
+async fn create_account(ProblemValidatedJson(account): ProblemValidatedJson<CreateAccount>) {
+    let _ = account.name;
+}
+```
+
+A validation failure rejects with HTTP 422 and this problem+json body, carrying the same
+`code` and field-level details the flat `ApiError` rejection exposes (`message` maps to
+`detail`, `code` and `details` become extension members):
+
+```json
+{
+    "title": "Unprocessable Entity",
+    "status": 422,
+    "detail": "validation failed",
+    "code": "VALIDATION_ERROR",
+    "details": { "fields": { "name": [{ "code": "length", "params": { "min": 2, "value": "a" } }] } }
+}
+```
+
+Rejections negotiate their `Content-Type` from the request's `Accept` headers exactly
+like `ProblemFormat` above: `application/problem+json` in every ambiguous case, plain
+`application/json` (byte-identical body) only when the client strictly prefers it. Each
+rejection is a public `ProblemRejection { problem, format }`, inspectable in tests and
+reusable as the rejection type of custom extractors.
+
 ## Error Propagation with `From` Implementations
 
 Convert common Rust errors directly to `ApiError` (HTTP 500 Internal Error):
