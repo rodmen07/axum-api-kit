@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-19
+
+### Added
+
+- Accept-header content negotiation for `Problem` responses (opt-in, `problem`
+  feature): `ProblemFormat` with `negotiate(&HeaderMap)`, `content_type()`, and
+  an infallible `FromRequestParts` extractor, plus
+  `Problem::into_response_for(&HeaderMap)` and
+  `Problem::into_response_with(ProblemFormat)`. Plain `application/json` is
+  served only when the client strictly prefers it; every ambiguous case (no
+  `Accept`, `*/*`, ties, malformed q-values) stays `application/problem+json`.
+  Bodies are byte-identical across both formats and `Retry-After` is preserved.
+  The existing `IntoResponse for Problem` output is unchanged and locked by a
+  byte-identity test. The minimal Accept parser is dependency-free and
+  documented as not a full RFC 9110 implementation.
+- RFC 9457 extractor rejections (opt-in): new sibling extractors
+  `ProblemJson<T>` (`problem` + `extract`) and `ProblemValidatedJson<T>`
+  (`problem` + `validator`) whose `ProblemRejection` emits `Problem` bodies
+  with the same status, stable `code`, and field-level `details` as the
+  existing extractors (carried as extension members), negotiated per request
+  via `ProblemFormat`. `ApiJson`/`ValidatedJson` rejections are unchanged and
+  locked byte-identical by a new rejection-bytes test suite; sibling types were
+  chosen so cargo feature unification can never silently reformat error
+  responses for users of the existing extractors.
+
 ## [1.3.0] - 2026-07-18
 
 ### Added
