@@ -15,7 +15,8 @@ use std::fmt;
 /// ```
 ///
 /// Use the factory methods to get a `(StatusCode, Json<ApiError>)` tuple, which implements
-/// [`IntoResponse`] and can be returned directly from Axum handlers.
+/// [`IntoResponse`](axum::response::IntoResponse) and can be returned directly from Axum
+/// handlers.
 ///
 /// # Example
 ///
