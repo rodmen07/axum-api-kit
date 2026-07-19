@@ -1,19 +1,19 @@
 #![cfg(feature = "problem")]
 
 //! End-to-end coverage for RFC 9457 `Problem` responses served from a real
-//! `Router`: hand-built problems, `ApiError` bridges, and the always-on
-//! Retry-After factories.
+//! `Router`: hand-built problems, `ApiError` bridges, the always-on
+//! Retry-After factories, and opt-in Accept-header content negotiation.
 
 use std::time::Duration;
 
 use axum::{
     body::Body,
-    http::{header, Request, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderMap, Request, StatusCode},
+    response::{IntoResponse, Response},
     routing::get,
     Router,
 };
-use axum_api_kit::{ApiError, Problem, APPLICATION_PROBLEM_JSON};
+use axum_api_kit::{ApiError, Problem, ProblemFormat, APPLICATION_PROBLEM_JSON};
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -167,5 +167,110 @@ async fn problem_with_retry_after_sets_header_and_problem_content_type() {
             "status": 503,
             "detail": "try again shortly"
         })
+    );
+}
+
+/// A router whose handler opts into negotiation via the `ProblemFormat`
+/// extractor.
+fn negotiating_app() -> Router {
+    async fn missing_item(format: ProblemFormat) -> Response {
+        Problem::new(StatusCode::NOT_FOUND, "Not Found")
+            .with_detail("item 42 does not exist")
+            .into_response_with(format)
+    }
+
+    Router::new().route("/items/42", get(missing_item))
+}
+
+fn get_with_accept(accept: Option<&str>) -> Request<Body> {
+    let mut builder = Request::builder().uri("/items/42");
+    if let Some(accept) = accept {
+        builder = builder.header(header::ACCEPT, accept);
+    }
+    builder.body(Body::empty()).unwrap()
+}
+
+#[tokio::test]
+async fn negotiation_extractor_serves_plain_json_when_preferred() {
+    let res = negotiating_app()
+        .oneshot(get_with_accept(Some("application/json")))
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        res.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
+
+    let body = body_json(res).await;
+    assert_eq!(
+        body,
+        json!({
+            "title": "Not Found",
+            "status": 404,
+            "detail": "item 42 does not exist"
+        })
+    );
+}
+
+#[tokio::test]
+async fn negotiation_extractor_keeps_problem_json_in_ambiguous_cases() {
+    for accept in [None, Some("*/*"), Some("text/html")] {
+        let res = negotiating_app()
+            .oneshot(get_with_accept(accept))
+            .await
+            .unwrap();
+
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            res.headers().get(header::CONTENT_TYPE).unwrap(),
+            APPLICATION_PROBLEM_JSON,
+            "Accept: {accept:?}"
+        );
+
+        let body = body_json(res).await;
+        assert_eq!(
+            body,
+            json!({
+                "title": "Not Found",
+                "status": 404,
+                "detail": "item 42 does not exist"
+            })
+        );
+    }
+}
+
+#[tokio::test]
+async fn negotiation_from_header_map_honors_q_values() {
+    async fn missing_item(headers: HeaderMap) -> Response {
+        Problem::new(StatusCode::NOT_FOUND, "Not Found")
+            .with_detail("item 42 does not exist")
+            .into_response_for(&headers)
+    }
+
+    let app: Router = Router::new().route("/items/42", get(missing_item));
+
+    let res = app
+        .clone()
+        .oneshot(get_with_accept(Some(
+            "application/json;q=0.9, application/problem+json;q=0.5",
+        )))
+        .await
+        .unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
+
+    let res = app
+        .oneshot(get_with_accept(Some(
+            "application/problem+json;q=0.9, application/json;q=0.5",
+        )))
+        .await
+        .unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_TYPE).unwrap(),
+        APPLICATION_PROBLEM_JSON
     );
 }

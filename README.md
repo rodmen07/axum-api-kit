@@ -294,6 +294,32 @@ let problem = ApiError::new("NOT_FOUND", "account not found").into_problem(Statu
 `with_retry_after(duration)` emits a delay-seconds `Retry-After` header; the delay is
 header-only and never appears in the JSON body.
 
+#### Accept-header content negotiation (opt-in)
+
+`Problem`'s plain `IntoResponse` always serves `application/problem+json`; that never
+changes. Handlers can opt in to serving the same body as plain `application/json` for
+clients that explicitly prefer it: extract `ProblemFormat` (it reads the request's
+`Accept` headers) and finish with `into_response_with`, or call
+`into_response_for(&headers)` directly with a `HeaderMap`.
+
+```rust
+use axum::{http::StatusCode, response::Response};
+use axum_api_kit::{Problem, ProblemFormat};
+
+// Accept: application/json          -> Content-Type: application/json
+// Accept: */* (or no Accept header) -> Content-Type: application/problem+json
+async fn out_of_stock(format: ProblemFormat) -> Response {
+    Problem::new(StatusCode::CONFLICT, "Out of stock").into_response_with(format)
+}
+```
+
+Plain JSON is served only when the `Accept` header ranks `application/json` strictly
+higher than `application/problem+json` (q-values considered; exact matches beat
+`application/*`, which beats `*/*`). Every ambiguous case (no `Accept` header, `*/*`,
+equal preference, unparseable values) keeps `application/problem+json`. The matcher is
+deliberately minimal, not a full RFC 9110 implementation; the exact rules are documented
+on `ProblemFormat::negotiate`.
+
 ## Error Propagation with `From` Implementations
 
 Convert common Rust errors directly to `ApiError` (HTTP 500 Internal Error):

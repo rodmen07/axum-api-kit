@@ -22,17 +22,30 @@
 //! this module bridge an existing `ApiError` (or a factory tuple) into a
 //! `Problem` losslessly.
 //!
-//! # Out of scope for this release
+//! # Content negotiation (opt-in)
 //!
-//! - Accept-header content negotiation middleware (choosing `application/json`
-//!   or `application/problem+json` based on the request).
+//! [`Problem`]'s plain [`IntoResponse`] impl always emits
+//! `Content-Type: application/problem+json`; that behavior is frozen and does
+//! not change for existing users. Handlers can opt into Accept-header
+//! negotiation, serving the same body bytes as plain `application/json` when
+//! the client strictly prefers it: extract [`ProblemFormat`] and finish with
+//! [`Problem::into_response_with`], or call [`Problem::into_response_for`]
+//! with the request's [`HeaderMap`]. The exact (deliberately minimal) rules
+//! live on [`ProblemFormat::negotiate`]; every ambiguous case, including no
+//! `Accept` header and `*/*`, stays `application/problem+json`.
+//!
+//! # Out of scope
+//!
 //! - A problem+json rejection mode for `ValidatedJson` / `ApiJson`.
 //! - HTTP-date `Retry-After` values (only delay-seconds are emitted).
 //!
-//! All three are candidates for a future minor release.
+//! Both are candidates for a future minor release.
+
+use std::convert::Infallible;
 
 use axum::{
-    http::{header, HeaderValue, StatusCode},
+    extract::FromRequestParts,
+    http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -267,10 +280,58 @@ impl Problem {
     pub fn status_code(&self) -> StatusCode {
         StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
     }
-}
 
-impl IntoResponse for Problem {
-    fn into_response(self) -> Response {
+    /// Converts into a response, choosing the `Content-Type` by negotiating
+    /// against the request's `Accept` headers.
+    ///
+    /// Shorthand for `self.into_response_with(ProblemFormat::negotiate(headers))`;
+    /// see [`ProblemFormat::negotiate`] for the exact rules. Plain
+    /// `application/json` is served only when the client strictly prefers it;
+    /// every ambiguous case (no `Accept` header, `*/*`, ties, unparseable
+    /// values) serves `application/problem+json`. The body bytes and any
+    /// `Retry-After` header are identical either way, and the plain
+    /// [`IntoResponse`] behavior is untouched.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+    /// use axum_api_kit::Problem;
+    ///
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    ///
+    /// let res = Problem::new(StatusCode::NOT_FOUND, "Not Found").into_response_for(&headers);
+    /// assert_eq!(res.headers().get(header::CONTENT_TYPE).unwrap(), "application/json");
+    ///
+    /// let res = Problem::new(StatusCode::NOT_FOUND, "Not Found").into_response_for(&HeaderMap::new());
+    /// assert_eq!(
+    ///     res.headers().get(header::CONTENT_TYPE).unwrap(),
+    ///     "application/problem+json"
+    /// );
+    /// ```
+    pub fn into_response_for(self, headers: &HeaderMap) -> Response {
+        self.into_response_with(ProblemFormat::negotiate(headers))
+    }
+
+    /// Converts into a response served as the given [`ProblemFormat`].
+    ///
+    /// Pairs with the [`ProblemFormat`] extractor, which negotiates the format
+    /// from the request's `Accept` headers before the handler runs. The JSON
+    /// body bytes and any `Retry-After` header are identical for both formats;
+    /// only the `Content-Type` header differs.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum::http::{header, StatusCode};
+    /// use axum_api_kit::{Problem, ProblemFormat};
+    ///
+    /// let res = Problem::new(StatusCode::NOT_FOUND, "Not Found")
+    ///     .into_response_with(ProblemFormat::Json);
+    /// assert_eq!(res.headers().get(header::CONTENT_TYPE).unwrap(), "application/json");
+    /// ```
+    pub fn into_response_with(self, format: ProblemFormat) -> Response {
         // axum::Json hardcodes Content-Type: application/json, so the response
         // is built via the (StatusCode, [(HeaderName, HeaderValue); 1], Vec<u8>)
         // tuple instead; the header part's insert overrides the
@@ -290,7 +351,7 @@ impl IntoResponse for Problem {
             status,
             [(
                 header::CONTENT_TYPE,
-                HeaderValue::from_static(APPLICATION_PROBLEM_JSON),
+                HeaderValue::from_static(format.content_type()),
             )],
             body,
         )
@@ -302,6 +363,231 @@ impl IntoResponse for Problem {
             );
         }
         res
+    }
+}
+
+impl IntoResponse for Problem {
+    fn into_response(self) -> Response {
+        // The frozen 1.x default: always application/problem+json. Content
+        // negotiation is opt-in via into_response_for / into_response_with.
+        self.into_response_with(ProblemFormat::ProblemJson)
+    }
+}
+
+/// The media type a [`Problem`] response is served as: the RFC 9457 default
+/// `application/problem+json`, or plain `application/json` for clients that
+/// explicitly prefer it.
+///
+/// This is the opt-in content negotiation half of the `problem` feature.
+/// [`Problem`]'s plain [`IntoResponse`] impl always emits
+/// `application/problem+json`; nothing changes for existing users. To
+/// negotiate, either extract `ProblemFormat` in a handler (it implements
+/// [`FromRequestParts`] infallibly, reading the `Accept` headers) and finish
+/// with [`Problem::into_response_with`], or call
+/// [`Problem::into_response_for`] with the request's [`HeaderMap`] directly.
+///
+/// Both formats serve byte-identical JSON bodies; only the `Content-Type`
+/// header differs. [`Default`] is [`ProblemFormat::ProblemJson`].
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use axum::{http::StatusCode, response::Response, routing::get, Router};
+/// use axum_api_kit::{Problem, ProblemFormat};
+///
+/// // Accept: application/json          -> Content-Type: application/json
+/// // Accept: */* (or no Accept header) -> Content-Type: application/problem+json
+/// async fn not_found(format: ProblemFormat) -> Response {
+///     Problem::new(StatusCode::NOT_FOUND, "Not Found").into_response_with(format)
+/// }
+///
+/// let app: Router = Router::new().route("/missing", get(not_found));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProblemFormat {
+    /// Serve `Content-Type: application/problem+json` (the RFC 9457 media
+    /// type, and the default in every ambiguous case).
+    #[default]
+    ProblemJson,
+    /// Serve `Content-Type: application/json`, for clients whose `Accept`
+    /// header strictly prefers plain JSON.
+    Json,
+}
+
+impl ProblemFormat {
+    /// Chooses the response format from a request's `Accept` headers.
+    ///
+    /// This is a minimal, hand-rolled matcher, deliberately not a full
+    /// RFC 9110 implementation. The rules:
+    ///
+    /// 1. Recognized media ranges are `application/problem+json`,
+    ///    `application/json`, `application/*`, and `*/*` (ASCII
+    ///    case-insensitive, across all `Accept` headers). Every other range,
+    ///    including other `+json` suffix types, is ignored.
+    /// 2. A range's weight is its `q` parameter (default `1`). Parameters
+    ///    other than the first `q` are ignored. A range whose `q` value does
+    ///    not parse per the RFC 9110 `qvalue` grammar (`0` to `1` with at
+    ///    most three decimals) is ignored entirely.
+    /// 3. Each of the two servable types takes its weight from the most
+    ///    specific matching range (an exact match beats `application/*`,
+    ///    which beats `*/*`); among equally specific matches the highest `q`
+    ///    wins.
+    /// 4. [`ProblemFormat::Json`] is returned only when plain
+    ///    `application/json` ends up with a strictly higher weight than
+    ///    `application/problem+json`. Everything else (no `Accept` header,
+    ///    `*/*`, `application/*`, equal weights, `q=0` on both, unparseable
+    ///    headers) returns [`ProblemFormat::ProblemJson`].
+    ///
+    /// | `Accept` | result |
+    /// |---|---|
+    /// | (absent) | problem+json |
+    /// | `*/*` | problem+json |
+    /// | `application/*` | problem+json |
+    /// | `application/json` | plain JSON |
+    /// | `application/problem+json` | problem+json |
+    /// | `application/json, */*` | problem+json (tie at `q=1`) |
+    /// | `application/json;q=0.9, application/problem+json;q=0.5` | plain JSON |
+    /// | `application/problem+json, application/json` | problem+json (tie) |
+    /// | `text/html` | problem+json (neither matched) |
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum::http::{header, HeaderMap, HeaderValue};
+    /// use axum_api_kit::ProblemFormat;
+    ///
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    /// assert_eq!(ProblemFormat::negotiate(&headers), ProblemFormat::Json);
+    ///
+    /// assert_eq!(
+    ///     ProblemFormat::negotiate(&HeaderMap::new()),
+    ///     ProblemFormat::ProblemJson
+    /// );
+    /// ```
+    pub fn negotiate(headers: &HeaderMap) -> Self {
+        // Weight of the best matching range seen so far for each servable
+        // type: (specificity, q in thousandths). Specificity: 3 exact match,
+        // 2 application/*, 1 */*, 0 nothing matched yet.
+        let mut problem = (0u8, 0u16);
+        let mut json = (0u8, 0u16);
+
+        for value in headers.get_all(header::ACCEPT) {
+            let Ok(value) = value.to_str() else {
+                // Non-UTF8 header values cannot express a preference we
+                // recognize; skip them (the default then wins).
+                continue;
+            };
+            for range in value.split(',') {
+                let mut parts = range.split(';');
+                // split always yields at least one segment.
+                let media = parts.next().unwrap_or("").trim().to_ascii_lowercase();
+
+                let mut q = 1000u16; // qvalue defaults to 1 per RFC 9110
+                let mut malformed = false;
+                for param in parts {
+                    let (key, val) = match param.split_once('=') {
+                        Some((key, val)) => (key.trim(), Some(val.trim())),
+                        None => (param.trim(), None),
+                    };
+                    if key.eq_ignore_ascii_case("q") {
+                        match val.and_then(parse_qvalue) {
+                            Some(thousandths) => q = thousandths,
+                            None => malformed = true,
+                        }
+                        break; // the first q parameter decides
+                    }
+                }
+                if malformed {
+                    continue;
+                }
+
+                let (specificity, to_problem, to_json) = match media.as_str() {
+                    "application/problem+json" => (3u8, true, false),
+                    "application/json" => (3, false, true),
+                    "application/*" => (2, true, true),
+                    "*/*" => (1, true, true),
+                    _ => continue,
+                };
+                let update = |slot: &mut (u8, u16)| {
+                    if specificity > slot.0 {
+                        *slot = (specificity, q);
+                    } else if specificity == slot.0 && q > slot.1 {
+                        slot.1 = q;
+                    }
+                };
+                if to_problem {
+                    update(&mut problem);
+                }
+                if to_json {
+                    update(&mut json);
+                }
+            }
+        }
+
+        if json.1 > problem.1 {
+            Self::Json
+        } else {
+            Self::ProblemJson
+        }
+    }
+
+    /// The `Content-Type` value this format serves.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_api_kit::{ProblemFormat, APPLICATION_PROBLEM_JSON};
+    ///
+    /// assert_eq!(ProblemFormat::ProblemJson.content_type(), APPLICATION_PROBLEM_JSON);
+    /// assert_eq!(ProblemFormat::Json.content_type(), "application/json");
+    /// ```
+    pub fn content_type(self) -> &'static str {
+        match self {
+            Self::ProblemJson => APPLICATION_PROBLEM_JSON,
+            Self::Json => "application/json",
+        }
+    }
+}
+
+impl<S> FromRequestParts<S> for ProblemFormat
+where
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self::negotiate(&parts.headers))
+    }
+}
+
+/// Parses an RFC 9110 `qvalue` into thousandths (`0..=1000`).
+///
+/// Grammar: `( "0" [ "." *3DIGIT ] ) / ( "1" [ "." *3("0") ] )`. Anything
+/// else (empty, `.5`, `1.5`, more than three decimals, stray characters)
+/// returns `None`, and [`ProblemFormat::negotiate`] ignores the whole media
+/// range that carried it.
+fn parse_qvalue(s: &str) -> Option<u16> {
+    let (int, frac) = match s.split_once('.') {
+        Some((int, frac)) => (int, frac),
+        None => (s, ""),
+    };
+    if frac.len() > 3 || !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    match int {
+        "0" => {
+            let mut thousandths = 0u16;
+            for digit in frac.bytes() {
+                thousandths = thousandths * 10 + u16::from(digit - b'0');
+            }
+            for _ in frac.len()..3 {
+                thousandths *= 10;
+            }
+            Some(thousandths)
+        }
+        "1" => frac.bytes().all(|digit| digit == b'0').then_some(1000),
+        _ => None,
     }
 }
 
@@ -493,5 +779,210 @@ mod tests {
             retry_after: None,
         };
         assert_eq!(problem.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    fn accept(value: &'static str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, HeaderValue::from_static(value));
+        headers
+    }
+
+    #[test]
+    fn qvalue_grammar() {
+        assert_eq!(parse_qvalue("1"), Some(1000));
+        assert_eq!(parse_qvalue("1."), Some(1000));
+        assert_eq!(parse_qvalue("1.0"), Some(1000));
+        assert_eq!(parse_qvalue("1.000"), Some(1000));
+        assert_eq!(parse_qvalue("0"), Some(0));
+        assert_eq!(parse_qvalue("0."), Some(0));
+        assert_eq!(parse_qvalue("0.5"), Some(500));
+        assert_eq!(parse_qvalue("0.85"), Some(850));
+        assert_eq!(parse_qvalue("0.855"), Some(855));
+
+        assert_eq!(parse_qvalue("1.001"), None);
+        assert_eq!(parse_qvalue("1.5"), None);
+        assert_eq!(parse_qvalue("0.8555"), None); // more than three decimals
+        assert_eq!(parse_qvalue(".5"), None);
+        assert_eq!(parse_qvalue(""), None);
+        assert_eq!(parse_qvalue("abc"), None);
+        assert_eq!(parse_qvalue("01"), None);
+        assert_eq!(parse_qvalue("-1"), None);
+        assert_eq!(parse_qvalue("0.5x"), None);
+    }
+
+    #[test]
+    fn negotiate_defaults_to_problem_json_in_every_ambiguous_case() {
+        // No Accept header at all.
+        assert_eq!(
+            ProblemFormat::negotiate(&HeaderMap::new()),
+            ProblemFormat::ProblemJson
+        );
+        for value in [
+            "*/*",
+            "application/*",
+            "application/problem+json",
+            "application/json, */*",                      // tie at q=1
+            "application/problem+json, application/json", // tie at q=1
+            "application/json;q=0.5, application/problem+json;q=0.5", // explicit tie
+            "text/html",                                  // neither matched
+            "application/json;q=0",                       // refused, nothing else
+            "application/json;q=abc",                     // malformed q: range ignored
+            "application/json;q",                         // bare q with no value: range ignored
+            "application/json;q=1.5", // q outside the RFC grammar: range ignored
+            "application/vnd.api+json", // +json suffix types are not matched
+            ";;;,,,",                 // unparseable garbage
+        ] {
+            assert_eq!(
+                ProblemFormat::negotiate(&accept(value)),
+                ProblemFormat::ProblemJson,
+                "Accept: {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn negotiate_serves_plain_json_on_strict_preference() {
+        for value in [
+            "application/json",
+            "Application/JSON", // ASCII case-insensitive
+            " application/json ; q=1 ",
+            "application/json;q=0.9, application/problem+json;q=0.5",
+            "application/json, application/problem+json;q=0.8",
+            "text/html;q=1, application/json;q=0.9", // unrelated types are ignored
+            "*/*;q=0.1, application/json;q=0.2",
+            // Specificity: the exact problem+json match (q=0.5) beats the
+            // wildcard (q=1) for problem+json, so plain JSON wins at 1 > 0.5.
+            "application/*;q=1, application/problem+json;q=0.5",
+        ] {
+            assert_eq!(
+                ProblemFormat::negotiate(&accept(value)),
+                ProblemFormat::Json,
+                "Accept: {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn negotiate_keeps_problem_json_on_strict_preference_for_it() {
+        for value in [
+            "application/problem+json;q=0.9, application/json;q=0.5",
+            "application/json;q=0.1, application/problem+json",
+            "application/*;q=1, application/json;q=0.5", // specificity, mirrored
+        ] {
+            assert_eq!(
+                ProblemFormat::negotiate(&accept(value)),
+                ProblemFormat::ProblemJson,
+                "Accept: {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn negotiate_scans_all_accept_headers() {
+        let mut headers = HeaderMap::new();
+        headers.append(header::ACCEPT, HeaderValue::from_static("text/html"));
+        headers.append(header::ACCEPT, HeaderValue::from_static("application/json"));
+        assert_eq!(ProblemFormat::negotiate(&headers), ProblemFormat::Json);
+    }
+
+    #[test]
+    fn negotiate_skips_non_utf8_accept_values() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, HeaderValue::from_bytes(&[0xFF]).unwrap());
+        assert_eq!(
+            ProblemFormat::negotiate(&headers),
+            ProblemFormat::ProblemJson
+        );
+    }
+
+    #[test]
+    fn problem_format_default_and_content_types() {
+        assert_eq!(ProblemFormat::default(), ProblemFormat::ProblemJson);
+        assert_eq!(
+            ProblemFormat::ProblemJson.content_type(),
+            APPLICATION_PROBLEM_JSON
+        );
+        assert_eq!(ProblemFormat::Json.content_type(), "application/json");
+    }
+
+    #[tokio::test]
+    async fn into_response_with_json_changes_only_content_type() {
+        let problem = || {
+            Problem::new(StatusCode::FORBIDDEN, "Insufficient credit")
+                .with_detail("Balance is 30, item costs 50")
+                .with_extension("balance", 30)
+                .with_retry_after(Duration::from_secs(30))
+        };
+        let default = problem().into_response();
+        let negotiated = problem().into_response_with(ProblemFormat::Json);
+
+        assert_eq!(negotiated.status(), default.status());
+        assert_eq!(
+            negotiated.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+        assert_eq!(negotiated.headers().get(header::RETRY_AFTER).unwrap(), "30");
+
+        let default_body = axum::body::to_bytes(default.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let negotiated_body = axum::body::to_bytes(negotiated.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            default_body, negotiated_body,
+            "bodies must be byte-identical across formats"
+        );
+    }
+
+    #[tokio::test]
+    async fn into_response_for_negotiates_from_headers() {
+        let res = Problem::new(StatusCode::NOT_FOUND, "Not Found")
+            .into_response_for(&accept("application/json"));
+        assert_eq!(
+            res.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+
+        let res =
+            Problem::new(StatusCode::NOT_FOUND, "Not Found").into_response_for(&HeaderMap::new());
+        assert_eq!(
+            res.headers().get(header::CONTENT_TYPE).unwrap(),
+            APPLICATION_PROBLEM_JSON
+        );
+    }
+
+    #[tokio::test]
+    async fn plain_into_response_is_unchanged_by_negotiation_support() {
+        // Locks the frozen 1.x behavior byte-for-byte: exactly the status,
+        // header set, and body bytes Problem::into_response emitted in 1.3.0,
+        // regardless of the negotiation machinery added alongside it.
+        let res = Problem::new(StatusCode::NOT_FOUND, "Not Found")
+            .with_retry_after(Duration::from_secs(30))
+            .into_response();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert_eq!(res.headers().len(), 2);
+        assert_eq!(
+            res.headers().get(header::CONTENT_TYPE).unwrap(),
+            APPLICATION_PROBLEM_JSON
+        );
+        assert_eq!(res.headers().get(header::RETRY_AFTER).unwrap(), "30");
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&bytes[..], br#"{"title":"Not Found","status":404}"#);
+
+        // And the minimal case without Retry-After.
+        let res = Problem::new(StatusCode::NOT_FOUND, "Not Found").into_response();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        assert_eq!(res.headers().len(), 1);
+        assert_eq!(
+            res.headers().get(header::CONTENT_TYPE).unwrap(),
+            APPLICATION_PROBLEM_JSON
+        );
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&bytes[..], br#"{"title":"Not Found","status":404}"#);
     }
 }

@@ -50,7 +50,10 @@
 //!
 //! - `Problem` (feature `problem`) - an RFC 9457 problem+json response type with builder
 //!   methods, lossless bridges from [`ApiError`], and Retry-After support. Emits
-//!   `Content-Type: application/problem+json`.
+//!   `Content-Type: application/problem+json`, with opt-in Accept-header content
+//!   negotiation (the `ProblemFormat` extractor plus `Problem::into_response_for` /
+//!   `Problem::into_response_with`) that serves the same body as plain `application/json`
+//!   only when the client strictly prefers it.
 //!
 //! With the `openapi` feature, all four response types derive `utoipa::ToSchema` so they
 //! can be referenced from a `utoipa` `OpenApi` document and appear in generated specs.
@@ -115,7 +118,7 @@ pub use list::ListResponse;
 #[cfg(feature = "extract")]
 pub use pagination::{CursorPagination, Pagination};
 #[cfg(feature = "problem")]
-pub use problem::{Problem, APPLICATION_PROBLEM_JSON};
+pub use problem::{Problem, ProblemFormat, APPLICATION_PROBLEM_JSON};
 #[cfg(feature = "router")]
 pub use router::{health_routes, liveness};
 pub use success::{Accepted, Created, NoContent};
