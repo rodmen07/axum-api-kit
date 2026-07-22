@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-22
+
+### Changed
+
+- **BREAKING (opt-in `validator` feature only):** the optional `validator`
+  dependency moves from `0.18` to `0.20`. The `Validate` trait bound on
+  `ValidatedJson<T>` is version-coupled, so any consumer that enables the
+  `validator` feature must move its own `validator` dependency (and any
+  `#[derive(Validate)]` attribute syntax) to `0.20` as well. Consumers who do
+  NOT enable the `validator` feature are unaffected.
+
+### Security
+
+- Clears two advisories that reached the crate only through `validator 0.18`'s
+  transitive dependencies: **RUSTSEC-2024-0421** (`idna` 0.5 Punycode) and
+  **RUSTSEC-2024-0370** (`proc-macro-error` unmaintained). `validator 0.20`
+  pulls `idna` 1.x and `proc-macro-error3`. The CI `Security audit` job no
+  longer needs to `--ignore` either advisory.
+
+### Unchanged (verified)
+
+- This crate's own public API and the byte-for-byte response output of every
+  type — including `ApiError`, the `ValidatedJson` validation-failure body, and
+  all extractor rejection bodies — are unchanged. The existing byte-identity
+  tests (`tests/rejection_bytes.rs`, `validation_failure_bytes_are_locked` et
+  al.) pass without modification against `validator 0.20`. The major version
+  reflects the version-coupled `validator` dependency only.
+
 ## [1.4.0] - 2026-07-19
 
 ### Added

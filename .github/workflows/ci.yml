@@ -50,15 +50,9 @@ jobs:
 
       - name: Run security audit
         # --deny warnings promotes unsound/unmaintained/yanked advisories to
-        # failures instead of letting them accumulate silently.
-        #
-        # Two advisories are ignored, both reached ONLY through the optional
-        # `validator` feature (off by default) via validator 0.18's transitive
-        # deps. Clearing them needs validator 0.18 -> 0.20, a semver-major dep
-        # bump that would change this crate's re-exported `validator/derive`
-        # surface and so must be evaluated against the frozen 1.x public API
-        # before landing (tracked as a backlog follow-up). Every other advisory,
-        # and any new one, still fails this job:
-        #   RUSTSEC-2024-0421 idna 0.5 Punycode (validator url/email check)
-        #   RUSTSEC-2024-0370 proc-macro-error unmaintained (validator_derive)
-        run: cargo audit --deny warnings --ignore RUSTSEC-2024-0421 --ignore RUSTSEC-2024-0370
+        # failures instead of letting them accumulate silently. No advisory is
+        # ignored: the two that previously were (RUSTSEC-2024-0421 idna 0.5,
+        # RUSTSEC-2024-0370 proc-macro-error) came only through validator 0.18
+        # and were cleared by the validator 0.20 bump (v2.0.0) - 0.20 pulls
+        # idna 1.x and proc-macro-error3.
+        run: cargo audit --deny warnings
