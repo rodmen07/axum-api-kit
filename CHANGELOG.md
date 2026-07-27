@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- MSRV raised 1.75 -> 1.81, and now enforced by a dedicated `MSRV 1.81` CI job.
+  This corrects a declaration that was already fiction: v2.0.0's
+  `validator 0.18 -> 0.20` bump made 1.75 unbuildable with all features
+  (`validator 0.20.0`, the earliest 0.20, hard-requires rustc 1.81), so no
+  consumer on 1.75 could have built 2.0.0 anyway. Note for 1.81-1.84
+  toolchains: pin `cargo update validator_derive --precise 0.20.0`
+  (`validator_derive 0.20.1` is edition2024, which cargo < 1.85 cannot parse).
+
 ## [2.0.0] - 2026-07-22
 
 ### Changed

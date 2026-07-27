@@ -30,6 +30,50 @@ jobs:
       - name: Test (all features)
         run: cargo test --all-features
 
+  msrv:
+    # Enforces Cargo.toml's `rust-version`. The declared MSRV was 1.75 until
+    # 2026-07-26, but that became fiction when v2.0.0 bumped validator to 0.20:
+    # validator 0.20.0 (the earliest 0.20) hard-requires rustc 1.81, so no
+    # dependency resolution of `--all-features` can build on 1.75. 1.81 is the
+    # measured floor, not a guess.
+    name: MSRV 1.81
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stable cargo first: its rust-version-aware resolver picks dependency
+      # versions that honor rust-version = "1.81" (the fallback env var makes
+      # that explicit). Installing 1.81 second makes it the default toolchain,
+      # but the build steps below pass +1.81 explicitly anyway.
+      - name: Install stable toolchain (MSRV-aware resolver)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.81
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Cargo.lock is gitignored for this library, so resolve a fresh
+      # MSRV-compatible graph each run. One pin is required: validator_derive
+      # 0.20.1 declares no rust-version (so the resolver keeps it) but its
+      # manifest is edition2024, which cargo < 1.85 cannot even parse;
+      # 0.20.0 is the edition-2021 sibling that builds on 1.81. A downstream
+      # user on a 1.81-1.84 toolchain needs the same pin.
+      - name: Resolve MSRV-compatible dependencies
+        run: |
+          cargo +stable generate-lockfile
+          cargo +stable update validator_derive --precise 0.20.0
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+
+      - name: Build (all features)
+        run: cargo +1.81 build --all-features
+
+      - name: Test (all features)
+        run: cargo +1.81 test --all-features
+
   audit:
     name: Security audit
     runs-on: ubuntu-latest
