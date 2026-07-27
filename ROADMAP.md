@@ -8,7 +8,7 @@ Last updated: 2026-07-19.
 
 - Latest published release: 1.3.0 (2026-07-18) on crates.io: the `problem` feature (dependency-free RFC 9457 `Problem` responses with `application/problem+json`) plus always-on `ApiError::too_many_requests_with_retry_after` and `service_unavailable_with_retry_after` factories. Tag, GitHub release, and the publish workflow all completed; docs.rs built green.
 - Shipped since the 1.0.0 freeze (2026-06-03), all additive: 1.1.0 success helpers `Created`/`Accepted`/`NoContent` (2026-06-07), 1.2.0 `ApiJson` extractor with structured JSON rejections (2026-06-07), 1.2.1 through 1.2.7 cross-feature integration test coverage and formatting (2026-06-27), 1.3.0 problem responses and Retry-After factories (2026-07-18).
-- Eight feature flags: `validator`, `sqlx`, `extract`, `trace`, `router`, `cors`, `openapi`, `problem`. axum 0.8. MSRV 1.75 declared in Cargo.toml but not yet enforced in CI (see v1.3.2).
+- Eight feature flags: `validator`, `sqlx`, `extract`, `trace`, `router`, `cors`, `openapi`, `problem`. axum 0.8. MSRV 1.81 declared in Cargo.toml and enforced by the `MSRV 1.81` CI job (see v1.3.2 PR 1).
 
 ## Policy
 
@@ -19,7 +19,9 @@ Last updated: 2026-07-19.
 - A 2.0 is justified only by: a breaking public-API change, or an axum major version (0.9 or 1.0). Because axum types appear in the public API, an axum major is the primary (and currently only known) 2.0 trigger.
 
 ### MSRV
-- MSRV is 1.75 (`rust-version` in Cargo.toml). It is raised only in a minor release with a changelog note.
+- MSRV is 1.81 (`rust-version` in Cargo.toml). It is raised only in a minor release with a changelog note.
+- The 1.75 -> 1.81 raise (2026-07-26) corrects fiction rather than dropping support: v2.0.0's validator 0.18 -> 0.20 bump made 1.75 unbuildable (validator 0.20.0 hard-requires rustc 1.81; no 0.20.x is lower), so no consumer on 1.75 could ever have built 2.0.0 with all features. The changelog note rides the next release.
+- Toolchains 1.81-1.84 need one pin: `cargo update validator_derive --precise 0.20.0` (0.20.1 is edition2024, which cargo < 1.85 cannot parse). The `MSRV 1.81` CI job documents and exercises exactly this recipe.
 
 ### Dependencies
 - Optional-feature dependencies (validator, sqlx, tower-http, utoipa) track their upstream crates: a compatible upstream minor gets a bound-widen in a 1.x minor release.
@@ -41,7 +43,7 @@ Last updated: 2026-07-19.
 
 ### v1.3.2: CI enforcement of the stated policy - agent-doable, one or two small PRs
 CI currently runs the stable toolchain only and checks neither promise this document makes.
-- PR 1: add a CI job that builds and tests on a pinned Rust 1.75 toolchain with all features, so the declared `rust-version` is actually enforced.
+- PR 1: SHIPPED 2026-07-26 — the `MSRV 1.81` job in ci.yml builds and tests on a pinned Rust 1.81 toolchain with all features, so the declared `rust-version` is actually enforced. Finding en route: the planned "1.75" was already unbuildable (see the MSRV policy section above), so the job enforces the corrected floor, and `tests/msrv_gate_tests.rs` keeps Cargo.toml, ci.yml, and this document agreeing.
 - PR 2: add a cargo-semver-checks CI job comparing against the latest published version, mechanically guarding the 1.x additive-only promise.
 - USER-ONLY: cut a release if the user wants these shipped rather than repo-only.
 - Done when: both jobs exist and run green on main.

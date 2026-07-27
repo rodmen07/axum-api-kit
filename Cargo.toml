@@ -2,7 +2,7 @@
 name = "axum-api-kit"
 version = "2.0.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.81"
 authors = ["Rod Mendoza <rodmendoza07@gmail.com>"]
 description = "Shared response types for Axum JSON APIs: ApiError, ListResponse, and HealthResponse"
 license = "MIT"
