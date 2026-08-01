@@ -74,6 +74,27 @@ jobs:
       - name: Test (all features)
         run: cargo +1.81 test --all-features
 
+  semver:
+    name: Semver compatibility
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@cargo-semver-checks
+
+      - name: Check semver compatibility
+        # cargo-semver-checks verifies that no public API has been removed or
+        # changed in a way that breaks downstream consumers. The additive-only
+        # policy (ROADMAP.md) is mechanically enforced here: a release can only
+        # add new public items, never remove or change existing ones. Runs
+        # against the latest published version (the last release) by default.
+        run: cargo semver-checks
+
   audit:
     name: Security audit
     runs-on: ubuntu-latest
