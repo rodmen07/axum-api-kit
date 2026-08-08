@@ -3,12 +3,20 @@
 //! Verifies the response types register as OpenAPI components under the `openapi` feature.
 //!
 //! These assertions navigate the PARSED document (`components.schemas.<name>.properties` /
-//! `.required`) rather than substring-matching the serialized text. The distinction is not
-//! stylistic: `utoipa` copies each type's rustdoc verbatim into the schema's `description`, and
-//! every one of these types documents its own JSON shape in that rustdoc. A `json.contains("\"has_more\"")`
-//! over the whole document is therefore satisfied by the sentence
-//! `{ "data": [...], "next_cursor": "abc123", "has_more": true }` inside `CursorResponse`'s doc
-//! comment, and stays green when the property it is supposed to be checking is renamed or gone.
+//! `.required`) rather than substring-matching the serialized text, because a `contains` over the
+//! whole document cannot say WHICH schema a property belongs to. The predecessor of this file
+//! asserted `json.contains("\"has_more\"")` and `json.contains("\"total\"")` against the serialized
+//! string; renaming `CursorResponse::has_more` to `hasMore` while renaming `ListResponse::limit` to
+//! `has_more` left it fully green (`1 passed`) with both pagination types carrying a wrong wire
+//! shape, while these tests fail four times on that same tree and name the drifted lists.
+//!
+//! One weakness it turned out NOT to have, recorded because it is the plausible-sounding claim that
+//! motivated this rewrite and a control refuted it: `utoipa` does copy each type's rustdoc into the
+//! schema `description`, and every one of these types documents its own JSON shape there — but the
+//! description is JSON-escaped in the serialized output (`\"has_more\"`), so it never satisfied a
+//! `contains("\"has_more\"")` looking for unescaped quotes. The old assertions were narrow, not
+//! self-satisfying: they checked 3 of the 11 properties across the 4 schemas, never checked
+//! `required`, and never checked that a skipped field stays out.
 
 use serde_json::Value;
 use utoipa::OpenApi;
