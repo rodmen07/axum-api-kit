@@ -42,3 +42,11 @@ utoipa = { version = "5", optional = true }
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
 tower = { version = "0.5", features = ["util"] }
+# Test-only: tests/workflow_permissions.rs parses .github/workflows/*.yml with
+# a real YAML parser rather than matching text, so a workflow that stops
+# parsing fails here before it fails on a runner. serde_norway is the
+# maintained serde_yaml fork (the original is RUSTSEC-flagged unmaintained,
+# which the `cargo audit --deny warnings` gate would fail on). Its
+# rust-version is 1.71.1, well under this crate's 1.81 MSRV. Not a runtime
+# dependency: the published crate never touches YAML.
+serde_norway = "0.9"
