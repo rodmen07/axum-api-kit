@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   toolchains: pin `cargo update validator_derive --precise 0.20.0`
   (`validator_derive 0.20.1` is edition2024, which cargo < 1.85 cannot parse).
 
+### Security
+
+- Every GitHub Actions workflow now declares an explicit workflow-level
+  `permissions: contents: read`, so no job's `GITHUB_TOKEN` scope is inherited
+  from the repository-default settings toggle. This closes the last two
+  unscoped surfaces: `ci.yml`'s `Test, Lint, Format` job (the only one of four
+  without a block) and **`publish.yml`, the workflow that holds the crates.io
+  publish path**, which declared no block at any level. Measured on main run
+  30701775073: the unscoped job ran with `Contents: read, Metadata: read,
+  Packages: read` while the scoped `Security audit` job ran with exactly
+  `Contents: read, Metadata: read`. Pinned by `tests/workflow_permissions.rs`,
+  which glob-discovers every workflow file and parses it with a real YAML
+  parser, so a new workflow enters the contract the moment it is committed.
+  No change to this crate's API, response bytes, or runtime dependencies
+  (`serde_norway` is a dev-dependency of the guard only).
+
 ## [2.0.0] - 2026-07-22
 
 ### Changed

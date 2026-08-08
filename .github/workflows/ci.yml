@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+# Least-privilege token for every job. The repository default is a settings
+# toggle, not a reviewed commit: without this block a job's GITHUB_TOKEN scope
+# is whatever that toggle happens to say. Measured on main run 30701775073
+# (2026-08-01): the `ci` job, which had no block, ran with
+# `Contents: read, Metadata: read, Packages: read`, while `audit`, which had
+# one, ran with exactly `Contents: read, Metadata: read`. Nothing in this
+# workflow needs more than checkout.
+# tests/workflow_permissions.rs pins this block and its scope.
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: Test, Lint, Format

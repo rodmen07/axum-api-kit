@@ -8,7 +8,7 @@ Last updated: 2026-07-27. The release-state claims in this file are guarded by `
 
 - Latest published release: 2.0.0 (2026-07-22) on crates.io: the opt-in `validator` dependency moved 0.18 -> 0.20, clearing RUSTSEC-2024-0421 (idna 0.5 Punycode) and RUSTSEC-2024-0370 (proc-macro-error, unmaintained) for downstream consumers. Breaking ONLY for consumers who enable the `validator` feature (the `Validate` trait bound on `ValidatedJson<T>` is version-coupled); this crate's own public API and every response's bytes were verified unchanged — the byte-identity suites passed without modification against validator 0.20.
 - Shipped since the 1.0.0 freeze (2026-06-03): 1.1.0 success helpers `Created`/`Accepted`/`NoContent` (2026-06-07), 1.2.0 `ApiJson` extractor with structured JSON rejections (2026-06-07), 1.2.1 through 1.2.7 cross-feature integration test coverage and formatting (2026-06-27), 1.3.0 problem responses and Retry-After factories (2026-07-18), 1.4.0 Accept-header negotiation for `Problem` plus the `ProblemJson`/`ProblemValidatedJson` rejection extractors (2026-07-19), 2.0.0 validator 0.18 -> 0.20 (2026-07-22; the only non-additive entry, scoped as above).
-- Unreleased on main: what CHANGELOG.md's `[Unreleased]` section lists — currently the MSRV raise note (1.75 -> 1.81) and the `MSRV 1.81` CI job. These ride the next release, whose prep must move them into a dated section and drop this bullet (guarded).
+- Unreleased on main: what CHANGELOG.md's `[Unreleased]` section lists — currently the MSRV raise note (1.75 -> 1.81) and the `MSRV 1.81` CI job, plus the explicit least-privilege `permissions:` blocks on both workflows and their `tests/workflow_permissions.rs` guard. These ride the next release, whose prep must move them into a dated section and drop this bullet (guarded).
 - Eight feature flags: `validator`, `sqlx`, `extract`, `trace`, `router`, `cors`, `openapi`, `problem`. axum 0.8. MSRV 1.81 declared in Cargo.toml and enforced by the `MSRV 1.81` CI job (see v1.3.2 PR 1).
 
 ## Policy
@@ -39,11 +39,11 @@ Last updated: 2026-07-27. The release-state claims in this file are guarded by `
 ### v1.3.1: maintenance policy on record - COMPLETE 2026-07-19
 This file and the README pointer were committed to main 2026-07-18 (the done-when). The open "docs-only release or ride along" question resolved itself: both files are in the v1.4.0 tag's tree (verified via `git ls-tree v1.4.0`), so they shipped with 1.4.0 on 2026-07-19.
 
-### v1.3.2: CI enforcement of the stated policy - PR 1 shipped, PR 2 open
+### v1.3.2: CI enforcement of the stated policy - COMPLETE 2026-08-01
 CI historically ran the stable toolchain only and checked neither promise this document makes. (The "v1.3.2" label is historical; these are repo-side CI gates that ride the next release whatever its version number.)
 - PR 1: SHIPPED 2026-07-26 — the `MSRV 1.81` job in ci.yml builds and tests on a pinned Rust 1.81 toolchain with all features, so the declared `rust-version` is actually enforced. Finding en route: the planned "1.75" was already unbuildable (see the MSRV policy section above), so the job enforces the corrected floor, and `tests/msrv_gate_tests.rs` keeps Cargo.toml, ci.yml, and this document agreeing.
-- PR 2: add a cargo-semver-checks CI job comparing against the latest published version, mechanically guarding the additive-only promise (now against the 2.x line).
-- Done when: both jobs exist and run green on main.
+- PR 2: SHIPPED 2026-08-01 as PR #10 (`3ab884a`) — the `Semver compatibility` job runs `cargo semver-checks` against the latest published version, mechanically guarding the additive-only promise (now against the 2.x line). This line read "PR 2: add ..." and the heading read "PR 2 open" for six days after it merged; corrected 2026-08-07 from `gh pr list --state all` and the run below.
+- Done when: both jobs exist and run green on main. **MET** — main run `30701775073` (2026-08-01, the merge of PR #10) shows `MSRV 1.81` and `Semver compatibility` both `success`, read from `gh api .../runs/30701775073/jobs`, alongside `Test, Lint, Format` and `Security audit`.
 
 ### v1.4.0: problem feature round 2 - COMPLETE 2026-07-19, released the same day
 Both deferred 1.3.0 features shipped as the planned two PRs (PR #2: Accept-header content negotiation for `Problem`; PR #3: the `ProblemJson`/`ProblemValidatedJson` sibling extractors with RFC 9457 rejection bodies), then release prep (PR #4), tag v1.4.0, GitHub release, and a green publish workflow; the registry confirmed 1.4.0 at the time (2.0.0 has since superseded it as latest).
