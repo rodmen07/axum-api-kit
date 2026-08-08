@@ -229,6 +229,44 @@ fn the_next_milestones_section_always_names_an_open_milestone() {
     );
 }
 
+/// Whether ROADMAP.md carries a LIVE `Unreleased on main` bullet.
+///
+/// Anchored at line start, and to the bullet marker specifically, for exactly
+/// the reason `roadmap_latest_published` anchors its bullet and
+/// `milestones_section` anchors its heading: this document quotes its own
+/// superseded prose verbatim in History, and the tombstone rule REQUIRES that
+/// it does. A whole-file `contains` cannot tell a live claim from a tombstone
+/// quoting one, which made the guard and the tombstone rule mutually
+/// exclusive.
+///
+/// Measured 2026-08-08, during the v2.1.0 cut, which is the first release prep
+/// this guard ever ran against: dropping the bullet and quoting it into
+/// History — precisely what the bullet's own text instructed the release prep
+/// to do — failed this test with the changelog entries already correctly moved
+/// out. That is the loud direction.
+///
+/// The SILENT direction is the one worth fixing for, because it inverts the
+/// guard instead of blocking it: with an unanchored search, a History
+/// tombstone containing the phrase satisfies `declares` while `[Unreleased]`
+/// genuinely HAS entries, so the guard stops requiring a live bullet at all
+/// and reports green on the exact drift it exists to catch. Every release
+/// leaves another such tombstone behind, so that hole would have widened on
+/// its own with nobody editing the test.
+fn roadmap_declares_unreleased_work() -> bool {
+    let roadmap = repo_file("ROADMAP.md");
+    let bullets: Vec<&str> = roadmap
+        .lines()
+        .filter(|l| l.starts_with("- Unreleased on main"))
+        .collect();
+    assert!(
+        bullets.len() <= 1,
+        "ROADMAP.md carries {} `- Unreleased on main` bullets at line start; \
+         the guard cannot tell which one is the live claim: {bullets:?}",
+        bullets.len()
+    );
+    bullets.len() == 1
+}
+
 #[test]
 fn the_roadmap_declares_unreleased_work_exactly_when_the_changelog_has_some() {
     let changelog = repo_file("CHANGELOG.md");
@@ -239,19 +277,20 @@ fn the_roadmap_declares_unreleased_work_exactly_when_the_changelog_has_some() {
     let end = body.find("\n## [").unwrap_or(body.len());
     let has_entries = !body[..end].trim().is_empty();
 
-    let roadmap = repo_file("ROADMAP.md");
-    let declares = roadmap.contains("Unreleased on main");
+    let declares = roadmap_declares_unreleased_work();
 
     if has_entries {
         assert!(
             declares,
             "CHANGELOG.md's [Unreleased] section has entries but ROADMAP.md \
-             has no `Unreleased on main` bullet describing them"
+             has no live `- Unreleased on main` bullet describing them. A \
+             History tombstone quoting the phrase does NOT count and is not \
+             read by this guard; restore the bullet in Current state"
         );
     } else {
         assert!(
             !declares,
-            "ROADMAP.md still carries an `Unreleased on main` bullet but \
+            "ROADMAP.md still carries a live `- Unreleased on main` bullet but \
              CHANGELOG.md's [Unreleased] section is empty — a release prep \
              moved the entries out without dropping the bullet"
         );
@@ -265,7 +304,7 @@ fn extractors_report_file_order_and_sane_counts() {
     assert!(
         released.len() >= 20,
         "the changelog extractor found only {} released sections; CHANGELOG.md \
-         has 24 as of 2026-07-27, so the extractor is likely broken",
+         has 25 as of 2026-08-08, so the extractor is likely broken",
         released.len()
     );
     let pos = |v: &str| {
@@ -290,7 +329,7 @@ fn extractors_report_file_order_and_sane_counts() {
     assert!(
         headings.len() >= 4,
         "the milestone extractor found only {} `### v` heading(s) in \
-         `## Next milestones`; ROADMAP.md has 5 as of 2026-08-08, so the \
+         `## Next milestones`; ROADMAP.md has 6 as of 2026-08-08, so the \
          extractor is likely broken: {headings:?}",
         headings.len()
     );
