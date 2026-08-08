@@ -11,6 +11,19 @@
 //! Precedent: `tests/msrv_gate_tests.rs` here, `tests/roadmap_truth.rs` in
 //! slokit and svccat.
 //!
+//! Added 2026-08-08 (milestone-definition pass): a SCHEDULING guard alongside
+//! the consistency ones. On that date every versioned milestone in
+//! `## Next milestones` was COMPLETE — four of four — so the roadmap named
+//! nothing scheduled, while CHANGELOG `[Unreleased]` had held releasable work
+//! for thirteen days that the Releases policy forbade cutting because no
+//! document named a release for it. The five guards above could not catch it:
+//! they check that claims AGREE, and an all-complete milestone list is
+//! perfectly self-consistent. `the_next_milestones_section_always_names_an_open_milestone`
+//! closes that gap, and it is deliberately a forcing function — the commit
+//! that marks a milestone COMPLETE must name its successor in the same commit
+//! or `cargo test` goes red, which is the same shape as the unreleased-work
+//! bullet guard below.
+//!
 //! Deliberately NOT guarded: the crates.io registry state. No unit test can
 //! reach the network, so "the published version matches" stays a
 //! command-verified claim at release time (`curl` the crates.io API), not a
@@ -87,24 +100,64 @@ fn changelog_released_versions() -> Vec<String> {
         .collect()
 }
 
-/// The `## Next milestones` section of ROADMAP.md (heading to next `## `).
+/// The `## Next milestones` section of ROADMAP.md, from its HEADING LINE to
+/// the next `## ` heading line.
+///
+/// The heading match is anchored at line start, and exactly one anchored
+/// match must exist. A bare substring search is not good enough here for the
+/// same reason `roadmap_latest_published` anchors its bullet: this document
+/// discusses its own guards in prose, so the section name also appears inside
+/// backticks in the intro paragraph and in History. Measured 2026-08-08 —
+/// adding one such sentence made the unanchored search return the PROSE
+/// mention, whose "section" ended at the next real heading and contained no
+/// milestones at all, failing three guards at once. Loud that time; the same
+/// bug with the mention placed later in the file is the silent direction.
 fn milestones_section() -> String {
+    const HEADING: &str = "## Next milestones";
     let roadmap = repo_file("ROADMAP.md");
-    let start = roadmap
-        .find("## Next milestones")
-        .expect("ROADMAP.md has no `## Next milestones` section; the open-milestone guard stopped guarding anything");
-    let body = &roadmap[start..];
-    let end = body["## ".len()..]
+    let starts: Vec<usize> = roadmap
+        .match_indices(HEADING)
+        .map(|(i, _)| i)
+        .filter(|i| *i == 0 || roadmap.as_bytes()[i - 1] == b'\n')
+        .collect();
+    assert_eq!(
+        starts.len(),
+        1,
+        "ROADMAP.md must carry exactly one `{HEADING}` heading at line start \
+         (found {}); the milestone guards have nothing to read without it",
+        starts.len()
+    );
+    let start = starts[0];
+    let end = roadmap[start + HEADING.len()..]
         .find("\n## ")
-        .map(|i| i + "## ".len())
-        .unwrap_or(body.len());
-    let section = body[..end].to_string();
+        .map(|i| start + HEADING.len() + i)
+        .unwrap_or(roadmap.len());
+    let section = roadmap[start..end].to_string();
     assert!(
         section.contains("### v"),
         "the `## Next milestones` section contains no `### v` heading; \
          the open-milestone guard stopped guarding anything"
     );
     section
+}
+
+/// Every `### v...` heading inside `## Next milestones`, in FILE order.
+/// Built on `milestones_section`, so it inherits that function's loud failure
+/// when the section or its headings disappear.
+fn versioned_milestone_headings() -> Vec<String> {
+    milestones_section()
+        .lines()
+        .filter(|l| l.starts_with("### v"))
+        .map(|l| l.to_string())
+        .collect()
+}
+
+/// Whether a milestone heading declares itself finished. One predicate shared
+/// by the released-milestone guard and the open-milestone guard, so the two
+/// can never drift into disagreeing about what "done" reads like.
+fn heading_is_closed(line: &str) -> bool {
+    let lowered = line.to_lowercase();
+    lowered.contains("complete") || lowered.contains("shipped")
 }
 
 #[test]
@@ -147,15 +200,33 @@ fn no_released_version_is_still_an_open_milestone() {
             if rest.starts_with(|c: char| c.is_ascii_digit() || c == '.') {
                 continue;
             }
-            let lowered = line.to_lowercase();
             assert!(
-                lowered.contains("complete") || lowered.contains("shipped"),
+                heading_is_closed(line),
                 "version {version} has a dated CHANGELOG release section, but \
                  ROADMAP.md still lists it as an open milestone: `{line}`. \
                  Mark the heading COMPLETE/SHIPPED or move it to History"
             );
         }
     }
+}
+
+#[test]
+fn the_next_milestones_section_always_names_an_open_milestone() {
+    let headings = versioned_milestone_headings();
+    let open: Vec<&String> = headings.iter().filter(|l| !heading_is_closed(l)).collect();
+    assert!(
+        !open.is_empty(),
+        "ROADMAP.md's `## Next milestones` section has {} versioned milestone \
+         heading(s) and every one of them is marked COMPLETE/SHIPPED, so this \
+         crate has nothing scheduled. That is the state this file was in on \
+         2026-08-08, and it is how releasable work sat on main for thirteen \
+         days: the Releases policy only permits a cut when the roadmap or the \
+         backlog NAMES the release, so an empty schedule silently blocks \
+         shipping. Define the next milestone (a `### v<x.y.z>: <name>` heading \
+         with a done-when that a command can check) in the SAME commit that \
+         marked the last one complete. Headings found: {headings:?}",
+        headings.len()
+    );
 }
 
 #[test]
@@ -207,5 +278,20 @@ fn extractors_report_file_order_and_sane_counts() {
         pos("2.0.0") < pos("1.4.0") && pos("1.4.0") < pos("1.0.0"),
         "released versions are not in file order (newest first); the \
          extractor must report FILE order and never sort: {released:?}"
+    );
+
+    // Same self-test for the milestone extractor. Without it, an extractor
+    // that silently returned nothing would make
+    // `no_released_version_is_still_an_open_milestone` pass vacuously (it
+    // iterates and asserts nothing when the list is empty). The open-milestone
+    // guard fails loudly on an empty list by construction, so this assertion
+    // is what protects the OTHER one.
+    let headings = versioned_milestone_headings();
+    assert!(
+        headings.len() >= 4,
+        "the milestone extractor found only {} `### v` heading(s) in \
+         `## Next milestones`; ROADMAP.md has 5 as of 2026-08-08, so the \
+         extractor is likely broken: {headings:?}",
+        headings.len()
     );
 }
