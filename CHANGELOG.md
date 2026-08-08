@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `CursorResponse`'s documentation described the last page as
+  `{ "data": [...], "next_cursor": null, "has_more": false }`. It has never
+  serialized that way: `next_cursor` carries
+  `#[serde(skip_serializing_if = "Option::is_none")]`, so on the last page the
+  key is **omitted from the body entirely** rather than sent as `null`. The
+  docs now describe the bytes the type has always emitted — the bytes are
+  unchanged, and are now locked by `tests/default_response_contracts.rs`.
+  Clients should branch on `has_more`, or on the presence of the key, rather
+  than comparing `next_cursor` against `null`. The same correction reaches
+  `openapi`-feature users, since `utoipa` copies this rustdoc into the
+  generated schema's `description`.
+
+### Added
+
+- First response-level test coverage for the three types available with no
+  feature flags (`ListResponse`, `CursorResponse`, `HealthResponse`): status
+  code, `Content-Type`, and body bytes are now locked by
+  `tests/default_response_contracts.rs`. Their `IntoResponse` impls were
+  previously unexercised under the default feature set — `HealthResponse`'s
+  503 mapping was observed only through `health_routes`, behind the `router`
+  feature.
+
 ## [2.1.0] - 2026-08-08
 
 ### Changed

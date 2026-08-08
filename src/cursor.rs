@@ -13,8 +13,13 @@ use serde::Serialize;
 /// Serializes as:
 /// ```json
 /// { "data": [...], "next_cursor": "abc123", "has_more": true }
-/// { "data": [...], "next_cursor": null, "has_more": false }
+/// { "data": [...], "has_more": false }
 /// ```
+///
+/// On the last page `next_cursor` is **omitted from the body entirely**, not sent as `null`
+/// (the field carries `#[serde(skip_serializing_if = "Option::is_none")]`). Clients should test
+/// `has_more`, or the presence of the key, rather than comparing `next_cursor` against `null`.
+/// These bytes are locked by `tests/default_response_contracts.rs`.
 ///
 /// # Example
 ///
