@@ -36,7 +36,14 @@ validator = { version = "0.20", optional = true }
 sqlx = { version = "0.8", default-features = false, optional = true }
 tracing = { version = "0.1", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
-tower-http = { version = "0.6", features = ["cors"], optional = true }
+# Widened (not bumped) to accept 0.7: `cors_allowing`/`cors_permissive` publicly
+# return `tower_http::cors::CorsLayer`, so a hard 0.6 -> 0.7 bump would change a
+# public return type's identity for consumers who name it — a breaking change.
+# The multi-range requirement lets the resolver unify with EITHER a consumer's
+# 0.6 or 0.7, which is strictly more compatible than before. The crate's cors
+# usage (CorsLayer::new/permissive, AllowOrigin::list, allow_*) is identical in
+# both; CI resolves 0.7.0, and the 0.6.11 resolution is exercised at each widen.
+tower-http = { version = ">=0.6, <0.8", features = ["cors"], optional = true }
 utoipa = { version = "5", optional = true }
 
 [dev-dependencies]
