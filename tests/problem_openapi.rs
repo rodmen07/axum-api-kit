@@ -90,7 +90,16 @@ fn problem_requires_exactly_title_and_status() {
 /// there verbatim), which the predecessor's substring form could not tolerate.
 #[test]
 fn problem_does_not_advertise_the_header_only_retry_after_field() {
-    let names = problem_property_names(&document());
+    let doc = document();
+    // Anchor on the schema's PRESENCE first (loud panic when absent): a negative assertion over
+    // an absent schema's empty property list would otherwise pass for free — the exact vacuity
+    // hazard the sibling suite's NC-5 control demonstrated on an unregistered `HealthResponse`.
+    let _ = schema(&doc, "Problem");
+    let names = problem_property_names(&doc);
+    assert!(
+        !names.is_empty(),
+        "vacuity guard: `Problem` is registered but the walker returned no properties at all"
+    );
     assert!(
         !names.contains(&"retry_after".to_owned()),
         "header-only `retry_after` leaked into the schema; declared properties: {names:?}"
