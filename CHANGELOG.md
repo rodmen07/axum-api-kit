@@ -70,6 +70,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is therefore a candidate 3.0 driver plus an MSRV raise, deferred until a
   major is warranted; assessed 2026-08-08, recorded in `ROADMAP.md`'s
   dependency watch.
+- `sqlx` stays at `0.8`, deliberately: `sqlx::Error` is version-coupled into
+  the public API for `sqlx`-feature users (`impl From<sqlx::Error> for ApiError`),
+  so a hard `0.9` bump is a semver major for them — and unlike tower-http, the
+  widen instrument is also blocked, because `sqlx 0.9.0` declares
+  `rust-version = "1.94.0"`, far above this crate's 1.81 MSRV floor: a widened
+  range would hand fresh-resolving 1.81-1.93 consumers an unbuildable resolver
+  match, the false-declared-MSRV failure 2.1.0 corrected. A 0.9 adoption is a
+  candidate 3.0 driver, or rides a future MSRV raise to >=1.94; assessed
+  2026-08-08, recorded in `ROADMAP.md`'s dependency watch.
 
 ## [2.1.0] - 2026-08-08
 
