@@ -46,7 +46,13 @@ pub struct CursorResponse<T: Serialize> {
     pub data: Vec<T>,
     /// Opaque cursor token for fetching the next page.
     /// `None` indicates this is the last page.
+    ///
+    /// `nullable = false` is not cosmetic: `utoipa` derives nullability from `Option<String>`,
+    /// but the `skip_serializing_if` above means the wire NEVER carries `next_cursor: null` —
+    /// the key is simply absent. Without it the schema advertises a `string | null` union whose
+    /// `null` arm is unreachable. Absence is expressed by staying out of `required`, which it does.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(nullable = false))]
     pub next_cursor: Option<String>,
     /// Whether more items exist after this page.
     pub has_more: bool,

@@ -105,17 +105,25 @@ pub const APPLICATION_PROBLEM_JSON: &str = "application/problem+json";
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Problem {
     /// A URI reference identifying the problem type. Absent means "about:blank" per RFC 9457.
+    ///
+    /// Absent means absent: the key is omitted from the body, never sent as `null`, so the
+    /// schema declares `nullable = false` (see [`CursorResponse::next_cursor`] for the reasoning).
+    ///
+    /// [`CursorResponse::next_cursor`]: crate::CursorResponse::next_cursor
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(nullable = false))]
     pub type_uri: Option<String>,
     /// A short, human-readable summary of the problem type. Stable per problem type.
     pub title: String,
     /// The HTTP status code, duplicated in the body per RFC 9457.
     pub status: u16,
-    /// A human-readable explanation specific to this occurrence.
+    /// A human-readable explanation specific to this occurrence. Omitted when absent, never `null`.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(nullable = false))]
     pub detail: Option<String>,
-    /// A URI reference identifying this specific occurrence.
+    /// A URI reference identifying this specific occurrence. Omitted when absent, never `null`.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(nullable = false))]
     pub instance: Option<String>,
     /// RFC 9457 extension members, flattened to top-level JSON keys.
     #[serde(flatten)]
