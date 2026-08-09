@@ -48,6 +48,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   503 mapping was observed only through `health_routes`, behind the `router`
   feature.
 
+### Changed
+
+- **`cors` feature: the `tower-http` requirement is widened from `0.6` to
+  `>=0.6, <0.8`, accepting the new tower-http 0.7.** This is a widen, not a
+  bump, because `cors_allowing`/`cors_permissive` publicly return
+  `tower_http::cors::CorsLayer`: a hard bump to `0.7` would change that
+  public type's identity out from under a consumer whose own `tower-http = "0.6"`
+  names it, while the widened range lets cargo unify with either side. A fresh
+  resolution now picks tower-http 0.7.0 (rustc floor 1.65, under this crate's
+  1.81 MSRV; still tower-layer 0.3 and http 1, so `Router::layer` compatibility
+  is unchanged). Behavioral note when your graph resolves 0.7: upstream relaxed
+  the cors `Vary` header defaults (tower-http #674); tower-http 0.7's breaking
+  changes are confined to modules this crate does not use (compression,
+  follow-redirect, trace/classify, fs). The test suite passes identically under
+  a 0.6.11-pinned and a 0.7.0 resolution.
+- `validator` stays at `0.20`, deliberately: `validator 0.21.0` declares
+  `rust-version = "1.88"` — above this crate's 1.81 MSRV floor — and the
+  `Validate` bound is version-coupled into the public API for
+  `validator`-feature users (the route that made 2.0.0 a major). A 0.21 bump
+  is therefore a candidate 3.0 driver plus an MSRV raise, deferred until a
+  major is warranted; assessed 2026-08-08, recorded in `ROADMAP.md`'s
+  dependency watch.
+
 ## [2.1.0] - 2026-08-08
 
 ### Changed
