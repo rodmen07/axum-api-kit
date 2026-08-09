@@ -19,12 +19,21 @@
 //! `required`, and never checked that a skipped field stays out.
 //!
 //! Since 2026-08-08 the file also carries a CLASS guard, `no_registered_property_admits_null`
-//! (and its `problem`-feature sibling): rather than naming fields, it walks every property the
-//! document declares and fails if any of them admits `null`. Every `Option` field in this crate
-//! carries `#[serde(skip_serializing_if = "Option::is_none")]`, so absence is a missing key, not
-//! a `null` — but `utoipa` derives nullability from `Option<T>` and reintroduces the union unless
+//! (its `problem`-feature sibling lives in `tests/problem_openapi.rs` beside the rest of the
+//! `Problem` schema contract): rather than naming fields, it walks every property the document
+//! declares and fails if any of them admits `null`. Every `Option` field in this crate carries
+//! `#[serde(skip_serializing_if = "Option::is_none")]`, so absence is a missing key, not a
+//! `null` — but `utoipa` derives nullability from `Option<T>` and reintroduces the union unless
 //! the field opts out. Five fields across three types were shipping that way.
+//!
+//! The parsed-document helpers live in `tests/openapi_support/mod.rs` (moved there verbatim on
+//! 2026-08-09) so `tests/problem_openapi.rs` calls the same walker instead of re-deriving it.
 
+mod openapi_support;
+
+use openapi_support::{
+    every_property, null_paths, property_names, property_type, required_names, schema,
+};
 use serde_json::Value;
 use utoipa::OpenApi;
 
@@ -44,55 +53,6 @@ fn document() -> Value {
         .to_json()
         .expect("openapi serializes to json");
     serde_json::from_str(&json).expect("the generated document is valid json")
-}
-
-/// The schema object for `name`, failing loudly (rather than vacuously passing) if it is absent.
-fn schema(doc: &Value, name: &str) -> Value {
-    doc.get("components")
-        .and_then(|c| c.get("schemas"))
-        .and_then(|s| s.get(name))
-        .unwrap_or_else(|| {
-            panic!(
-                "no `components.schemas.{name}` in the generated document; registered schemas: {:?}",
-                doc.get("components")
-                    .and_then(|c| c.get("schemas"))
-                    .and_then(|s| s.as_object())
-                    .map(|m| m.keys().cloned().collect::<Vec<_>>())
-                    .unwrap_or_default()
-            )
-        })
-        .clone()
-}
-
-/// The property names a schema actually declares, sorted.
-fn property_names(doc: &Value, name: &str) -> Vec<String> {
-    let s = schema(doc, name);
-    let props = s
-        .get("properties")
-        .and_then(|p| p.as_object())
-        .unwrap_or_else(|| panic!("`{name}` declares no `properties` object at all"));
-    assert!(
-        !props.is_empty(),
-        "`{name}` declares an empty `properties` object, so every field assertion below would be \
-         satisfied only by its description text"
-    );
-    let mut names: Vec<String> = props.keys().cloned().collect();
-    names.sort();
-    names
-}
-
-/// The `required` field names a schema declares, sorted.
-fn required_names(doc: &Value, name: &str) -> Vec<String> {
-    let s = schema(doc, name);
-    let mut names: Vec<String> = s
-        .get("required")
-        .and_then(|r| r.as_array())
-        .unwrap_or_else(|| panic!("`{name}` declares no `required` array"))
-        .iter()
-        .map(|v| v.as_str().expect("required entries are strings").to_owned())
-        .collect();
-    names.sort();
-    names
 }
 
 #[test]
@@ -179,16 +139,6 @@ fn cursor_response_does_not_require_next_cursor() {
     );
 }
 
-/// The property's declared type, as the document states it.
-fn property_type(doc: &Value, schema_name: &str, property: &str) -> Value {
-    schema(doc, schema_name)
-        .get("properties")
-        .and_then(|p| p.get(property))
-        .and_then(|f| f.get("type"))
-        .cloned()
-        .unwrap_or_else(|| panic!("`{schema_name}.{property}` declares no `type` at all"))
-}
-
 /// `next_cursor` is omitted from the body on the last page, never sent as `null`, so a client
 /// generated from this document must not get a `string | null` union whose `null` arm is
 /// unreachable. Absence is carried by staying out of `required`, asserted just above.
@@ -216,58 +166,6 @@ fn api_error_details_is_typed_object_not_a_nullable_union() {
         property_type(&doc, "ApiError", "details"),
         serde_json::json!("object")
     );
-}
-
-/// Every `(schema, property, body)` triple the document declares, descending through the `allOf`
-/// branches that `#[serde(flatten)]` produces. That descent is load-bearing rather than defensive:
-/// `Problem` carries a flattened `extensions` map, so its own fields live at
-/// `components.schemas.Problem.allOf[1].properties` and a lookup at
-/// `components.schemas.Problem.properties` finds **nothing at all**.
-fn every_property(doc: &Value) -> Vec<(String, String, Value)> {
-    fn collect(schema_name: &str, node: &Value, out: &mut Vec<(String, String, Value)>) {
-        if let Some(props) = node.get("properties").and_then(|p| p.as_object()) {
-            for (name, body) in props {
-                out.push((schema_name.to_owned(), name.clone(), body.clone()));
-            }
-        }
-        for combinator in ["allOf", "oneOf", "anyOf"] {
-            if let Some(branches) = node.get(combinator).and_then(|b| b.as_array()) {
-                for branch in branches {
-                    collect(schema_name, branch, out);
-                }
-            }
-        }
-    }
-
-    let schemas = doc
-        .get("components")
-        .and_then(|c| c.get("schemas"))
-        .and_then(|s| s.as_object())
-        .expect("the document declares components.schemas");
-    let mut out = Vec::new();
-    for (name, body) in schemas {
-        collect(name, body, &mut out);
-    }
-    out
-}
-
-/// The sub-paths within one property body that admit `null`, as either an OpenAPI 3.1 type union
-/// (`"type": ["string", "null"]`) or a 3.0-style `"nullable": true`. Recurses into `items` so an
-/// element type is caught too.
-fn null_paths(body: &Value, prefix: &str) -> Vec<String> {
-    let mut found = Vec::new();
-    let declares_null = match body.get("type") {
-        Some(Value::Array(members)) => members.iter().any(|m| m == "null"),
-        Some(Value::String(s)) => s == "null",
-        _ => false,
-    } || body.get("nullable") == Some(&Value::Bool(true));
-    if declares_null {
-        found.push(prefix.to_owned());
-    }
-    if let Some(items) = body.get("items") {
-        found.extend(null_paths(items, &format!("{prefix}.items")));
-    }
-    found
 }
 
 /// CLASS GUARD. No property of any schema this crate registers may admit `null`, because every
@@ -317,54 +215,5 @@ fn no_registered_property_admits_null() {
         Vec::<String>::new(),
         "these properties admit `null` in the generated document while the wire omits the key \
          instead; each needs `#[cfg_attr(feature = \"openapi\", schema(nullable = false))]`"
-    );
-}
-
-/// The same class guard over the `problem` feature's `Problem` schema, which is registered
-/// separately because it is behind its own feature flag. It lives in this file rather than in
-/// `tests/problem_openapi.rs` because the parsed-document helpers above are what make the
-/// assertion possible, and because that file is pending its own rewrite (see the `## Bugs` entry
-/// in `backlogs/axum-api-kit.md`); duplicating the machinery would collide with it.
-#[cfg(feature = "problem")]
-#[test]
-fn no_problem_property_admits_null() {
-    #[derive(OpenApi)]
-    #[openapi(components(schemas(axum_api_kit::Problem)))]
-    struct ProblemDoc;
-
-    let doc: Value = serde_json::from_str(
-        &ProblemDoc::openapi()
-            .to_json()
-            .expect("openapi serializes to json"),
-    )
-    .expect("the generated document is valid json");
-
-    let properties = every_property(&doc);
-    let names: Vec<String> = properties
-        .iter()
-        .map(|(s, p, _)| format!("{s}.{p}"))
-        .collect();
-    assert_eq!(
-        names,
-        [
-            "Problem.detail",
-            "Problem.instance",
-            "Problem.status",
-            "Problem.title",
-            "Problem.type",
-        ],
-        "vacuity guard: `Problem`'s fields sit under `allOf` because `extensions` is flattened, \
-         so a walker that missed the descent would report an empty set and pass for free. \
-         `retry_after` is `schema(ignore)` and must stay out."
-    );
-
-    let offenders: Vec<String> = properties
-        .iter()
-        .flat_map(|(s, p, body)| null_paths(body, &format!("{s}.{p}")))
-        .collect();
-    assert_eq!(
-        offenders,
-        Vec::<String>::new(),
-        "these `Problem` properties admit `null` while the wire omits the key instead"
     );
 }
