@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`openapi` feature: five optional fields were typed as nullable unions in the
+  generated document while the wire omits the key entirely.** `utoipa` derives
+  nullability from `Option<T>`, so `ApiError::details`, `CursorResponse::next_cursor`,
+  and `Problem`'s `type`, `detail`, and `instance` were emitted as
+  `"type": ["string", "null"]` (`["object", "null"]` for `details`) — but every one of
+  them carries `#[serde(skip_serializing_if = "Option::is_none")]`, so absent means the
+  key is missing, never `null`. A client generated from that document got a
+  `T | null` union whose `null` arm is unreachable. Each field now declares
+  `schema(nullable = false)`; absence is carried by staying out of `required`, which is
+  unchanged. **No response bytes change** and no Rust API changes — this affects only
+  the document the `openapi` feature emits. Consumers who hand-wrote a `null` branch
+  against the old schema can delete it; it was never reachable.
+  A class guard, `tests/openapi.rs::no_registered_property_admits_null`, now walks every
+  property the document declares (descending into the `allOf` branches that `Problem`'s
+  flattened `extensions` map produces) and fails if any admits `null`, so a newly added
+  `Option` field is covered the day it lands.
+
 - `CursorResponse`'s documentation described the last page as
   `{ "data": [...], "next_cursor": null, "has_more": false }`. It has never
   serialized that way: `next_cursor` carries

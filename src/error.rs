@@ -36,8 +36,14 @@ pub struct ApiError {
     /// A human-readable description of the error.
     pub message: String,
     /// Optional structured details (field-level validation errors, etc.).
+    ///
+    /// Omitted from the body entirely when absent (`skip_serializing_if`), never sent as `null`,
+    /// so the schema declares `nullable = false` — see [`CursorResponse::next_cursor`] for the
+    /// same reasoning.
+    ///
+    /// [`CursorResponse::next_cursor`]: crate::CursorResponse::next_cursor
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>, nullable = false))]
     pub details: Option<Value>,
 }
 
