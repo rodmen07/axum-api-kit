@@ -28,7 +28,16 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      # No Swatinem/rust-cache here, deliberately (removed 2026-08-09). Its
+      # post-run save walks the `target/package/` tree that `cargo publish`
+      # creates and emitted four failure-level ENOENT annotations on run
+      # 31280520878 (the first publish run ever observed) while every ci.yml
+      # job running the same action stays annotation-free. The restore had
+      # nothing to offer this job either: the cache key is job-scoped
+      # (`v0-rust-publish-*`), releases sit further apart than GitHub's 7-day
+      # cache eviction ("No cache found." on that same run), and the whole
+      # cold job takes ~61s end to end. tests/workflow_cache.rs pins the
+      # invariant: a job that runs `cargo publish` never attempts a cache save.
 
       - name: Verify version matches tag
         run: |
