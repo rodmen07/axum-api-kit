@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`ApiError::with_source`'s own documentation example demonstrated a chain that
+  silently discards the source.** It called `.with_source(..)` and then
+  `.with_details(..)`, and `with_details` replaces the whole `details` value, so
+  the `"source"` key never reached the wire — and because the example asserted
+  nothing, it compiled and passed as a doctest while showing the loss. The
+  example now chains them the working way round (`with_details` first) and
+  asserts the resulting JSON, so the documented shape and the behaviour cannot
+  drift apart again. `with_details` now says it replaces, and `with_source` now
+  documents the two cases that discard the source: a later `with_details`, and a
+  `details` value that is not a JSON object. **No behaviour change** — both
+  discards are unchanged, filed as a bug, and pinned by `known_gap_` tests in
+  `tests/default_response_contracts.rs`.
+
+- `ApiError::details`'s documentation claimed the field is "never sent as
+  `null`". `skip_serializing_if = "Option::is_none"` does not skip
+  `Some(Value::Null)`, so `with_details(serde_json::json!(null))` emits
+  `"details": null` — which the `schema(nullable = false)` this field carries
+  says cannot happen. The doc now describes what the field actually emits and
+  names the gap; the wire bytes and the schema are unchanged, and the
+  contradiction is pinned by
+  `known_gap_api_error_details_can_serialize_as_null`.
+
 - **`openapi` feature: five optional fields were typed as nullable unions in the
   generated document while the wire omits the key entirely.** `utoipa` derives
   nullability from `Option<T>`, so `ApiError::details`, `CursorResponse::next_cursor`,
@@ -39,6 +61,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated schema's `description`.
 
 ### Added
+
+- First response-level test coverage for `ApiError`, the fourth type from the
+  crate's first commit and the one the earlier sweep below left out: status
+  code, `Content-Type` and body bytes for the `(StatusCode, Json<ApiError>)`
+  factories, and — for `too_many_requests_with_retry_after` and
+  `service_unavailable_with_retry_after` — proof that the `Retry-After` header
+  survives `into_response` with the documented rounding (1500ms becomes `"2"`)
+  and does not displace the JSON content type. Nothing had ever rendered an
+  `ApiError` into a `Response` under the default feature set; the unit tests
+  destructure the factory tuple instead.
 
 - First response-level test coverage for the three types available with no
   feature flags (`ListResponse`, `CursorResponse`, `HealthResponse`): status

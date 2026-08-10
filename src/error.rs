@@ -37,9 +37,14 @@ pub struct ApiError {
     pub message: String,
     /// Optional structured details (field-level validation errors, etc.).
     ///
-    /// Omitted from the body entirely when absent (`skip_serializing_if`), never sent as `null`,
-    /// so the schema declares `nullable = false` — see [`CursorResponse::next_cursor`] for the
-    /// same reasoning.
+    /// Omitted from the body entirely when `None` (`skip_serializing_if`), so the schema declares
+    /// `nullable = false` — see [`CursorResponse::next_cursor`] for the same reasoning.
+    ///
+    /// Known gap, pinned by `known_gap_api_error_details_can_serialize_as_null` in
+    /// `tests/default_response_contracts.rs`: `Option::is_none` does not skip `Some(Value::Null)`,
+    /// so setting this field to an explicit JSON `null` (`with_details(json!(null))`) DOES emit
+    /// `"details": null` — a value the `nullable = false` schema says cannot occur. Prefer leaving
+    /// it `None` over setting it to `null`.
     ///
     /// [`CursorResponse::next_cursor`]: crate::CursorResponse::next_cursor
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,6 +66,9 @@ impl ApiError {
     }
 
     /// Attach structured details to this error.
+    ///
+    /// REPLACES any details already set, including a `"source"` key put there by
+    /// [`with_source`](Self::with_source) — when chaining both, call `with_source` last.
     pub fn with_details(mut self, details: Value) -> Self {
         self.details = Some(details);
         self
@@ -211,8 +219,14 @@ impl ApiError {
 
     /// Attach a source error message to this error.
     ///
-    /// Stores the source in the details field under the `"source"` key.
-    /// Can be chained with other builder methods.
+    /// Merges the source into the `details` field under the `"source"` key, keeping the keys
+    /// already there. Two cases discard it instead, silently — both pinned by `known_gap_` tests
+    /// in `tests/default_response_contracts.rs`:
+    ///
+    /// * a later [`with_details`](Self::with_details) call, which replaces the whole value, so when
+    ///   chaining both call `with_source` LAST (this example chained them the other way round until
+    ///   2026-08-10, and asserted nothing, so it passed while demonstrating the loss);
+    /// * a `details` value that is not a JSON object — an array, a string, a number, or `null`.
     ///
     /// # Example
     ///
@@ -220,8 +234,20 @@ impl ApiError {
     /// use axum_api_kit::ApiError;
     ///
     /// let err = ApiError::new("NOT_FOUND", "user not found")
-    ///     .with_source("SELECT * FROM users WHERE id = ?")
-    ///     .with_details(serde_json::json!({ "user_id": 42 }));
+    ///     .with_details(serde_json::json!({ "user_id": 42 }))
+    ///     .with_source("SELECT * FROM users WHERE id = ?");
+    ///
+    /// assert_eq!(
+    ///     serde_json::to_value(&err).unwrap(),
+    ///     serde_json::json!({
+    ///         "code": "NOT_FOUND",
+    ///         "message": "user not found",
+    ///         "details": {
+    ///             "user_id": 42,
+    ///             "source": "SELECT * FROM users WHERE id = ?"
+    ///         }
+    ///     })
+    /// );
     /// ```
     pub fn with_source(mut self, source: &str) -> Self {
         let mut details = self.details.take().unwrap_or_else(|| serde_json::json!({}));
