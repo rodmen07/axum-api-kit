@@ -20,9 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated said nothing about them, so a generated client had to be told by hand.
   Gated on `openapi` **and** `extract` jointly rather than behind a new feature flag;
   a consumer with only one of the two sees no change, and no dependency was added
-  (`utoipa` is already the `openapi` dependency). `CursorPagination::cursor` declares
-  `nullable = false` for the reason the response types do: an absent cursor is an
-  absent parameter, never `?cursor=null`. The declared bounds are pinned to
+  (`utoipa` is already the `openapi` dependency). `CursorPagination::cursor` needs no
+  nullability opt-out, unlike the response types: `IntoParams` emits `Option<String>`
+  as `{"type": "string"}` with `required: false`, where `ToSchema` would have produced
+  a `string | null` union. That is measured on the generated document and guarded
+  class-wide by `no_contributed_parameter_admits_null`. The declared bounds are pinned to
   `Pagination::MAX_LIMIT` / `DEFAULT_LIMIT` by `tests/openapi_params.rs`, so the
   document cannot drift away from what the code enforces.
 

@@ -136,10 +136,15 @@ where
 pub struct CursorPagination {
     /// Opaque cursor token for the requested page. `None` on the first page.
     //
-    // `nullable = false` for the reason the response types carry it (see `CursorResponse`):
-    // utoipa derives nullability from `Option<String>`, but the first page OMITS the parameter
-    // rather than sending `cursor=null`. Optionality is carried by `required: false`.
-    #[cfg_attr(feature = "openapi", param(required = false, nullable = false))]
+    // Deliberately carries NO `param(...)` attribute, which is the opposite of what the response
+    // types needed: `CursorResponse::next_cursor` must spell out `schema(nullable = false)`
+    // because `ToSchema` turns `Option<String>` into a `string | null` union, but `IntoParams`
+    // does not — it emits `{"type": "string"}` with `required: false` unaided. Both halves were
+    // MEASURED on the generated document, not assumed: adding `param(required = false,
+    // nullable = false)` here changes not one byte of the document, so the attribute would have
+    // been a no-op that a later reader would credit for keeping `null` out.
+    // `tests/openapi_params.rs::no_contributed_parameter_admits_null` is what actually holds the
+    // line, and it fires on a real null (proven by a control that adds `param(nullable)`).
     pub cursor: Option<String>,
     /// Maximum number of items to return (clamped to `1..=`[`Pagination::MAX_LIMIT`]).
     // Literals, and the same drift guard, as `Pagination::limit` above.
