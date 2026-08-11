@@ -226,8 +226,8 @@ impl Problem {
     ///
     /// If `key` is one of the reserved members (`"type"`, `"title"`,
     /// `"status"`, `"detail"`, `"instance"`), the call is a silent no-op so
-    /// the flattened extensions can never emit duplicate JSON keys. This
-    /// mirrors the [`ApiError::with_source`] silent-no-op precedent.
+    /// the flattened extensions can never emit duplicate JSON keys — the
+    /// reserved member already carries that value, so nothing is lost.
     ///
     /// # Example
     ///

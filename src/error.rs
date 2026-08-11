@@ -52,6 +52,13 @@ pub struct ApiError {
     pub details: Option<Value>,
 }
 
+/// The key inside `details` under which [`ApiError::with_source`] records the source.
+const SOURCE_KEY: &str = "source";
+
+/// The key inside `details` under which a non-object `details` value is preserved when a source
+/// has to be attached to it.
+const NESTED_DETAILS_KEY: &str = "details";
+
 impl ApiError {
     /// Construct a bare `ApiError` without a bundled status code.
     ///
@@ -67,10 +74,62 @@ impl ApiError {
 
     /// Attach structured details to this error.
     ///
-    /// REPLACES any details already set, including a `"source"` key put there by
-    /// [`with_source`](Self::with_source) — when chaining both, call `with_source` last.
+    /// REPLACES any details already set, with one exception: a `"source"` recorded by
+    /// [`with_source`](Self::with_source) is carried across the replacement, so the two builders
+    /// compose in either order. A `"source"` key inside `details` itself wins, being the later
+    /// explicit assignment.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_api_kit::ApiError;
+    ///
+    /// let err = ApiError::new("DB_ERROR", "query failed")
+    ///     .with_source("SELECT 1")
+    ///     .with_details(serde_json::json!({ "table": "users" }));
+    ///
+    /// assert_eq!(
+    ///     serde_json::to_value(&err).unwrap(),
+    ///     serde_json::json!({
+    ///         "code": "DB_ERROR",
+    ///         "message": "query failed",
+    ///         "details": { "table": "users", "source": "SELECT 1" }
+    ///     })
+    /// );
+    /// ```
     pub fn with_details(mut self, details: Value) -> Self {
+        let carried = self.source_value().cloned();
         self.details = Some(details);
+        match carried {
+            Some(source) if self.source_value().is_none() => self.merge_source(source),
+            _ => self,
+        }
+    }
+
+    /// The `"source"` currently recorded inside `details`, if any.
+    ///
+    /// `Value::get` yields `None` for every non-object `Value`, so this is also the
+    /// "is `details` an object carrying a source" question.
+    fn source_value(&self) -> Option<&Value> {
+        self.details.as_ref().and_then(|d| d.get(SOURCE_KEY))
+    }
+
+    /// Record `source` at `details.source`, coercing `details` to an object first so no input
+    /// shape can silently discard either side.
+    fn merge_source(mut self, source: Value) -> Self {
+        let mut map = match self.details.take() {
+            None => serde_json::Map::new(),
+            Some(Value::Object(map)) => map,
+            // Not an object, and a JSON object is the only shape that can hold both. Preserve
+            // the caller's value under `details` rather than dropping it or the source.
+            Some(other) => {
+                let mut map = serde_json::Map::new();
+                map.insert(NESTED_DETAILS_KEY.to_string(), other);
+                map
+            }
+        };
+        map.insert(SOURCE_KEY.to_string(), source);
+        self.details = Some(Value::Object(map));
         self
     }
 
@@ -220,13 +279,9 @@ impl ApiError {
     /// Attach a source error message to this error.
     ///
     /// Merges the source into the `details` field under the `"source"` key, keeping the keys
-    /// already there. Two cases discard it instead, silently — both pinned by `known_gap_` tests
-    /// in `tests/default_response_contracts.rs`:
-    ///
-    /// * a later [`with_details`](Self::with_details) call, which replaces the whole value, so when
-    ///   chaining both call `with_source` LAST (this example chained them the other way round until
-    ///   2026-08-10, and asserted nothing, so it passed while demonstrating the loss);
-    /// * a `details` value that is not a JSON object — an array, a string, a number, or `null`.
+    /// already there. The two builders compose in either order and neither drops the other's
+    /// value: see [`with_details`](Self::with_details) for the reverse order, and the second
+    /// example below for a `details` that is not a JSON object.
     ///
     /// # Example
     ///
@@ -249,16 +304,31 @@ impl ApiError {
     ///     })
     /// );
     /// ```
-    pub fn with_source(mut self, source: &str) -> Self {
-        let mut details = self.details.take().unwrap_or_else(|| serde_json::json!({}));
-        if let serde_json::Value::Object(ref mut map) = details {
-            map.insert(
-                "source".to_string(),
-                serde_json::Value::String(source.to_string()),
-            );
-        }
-        self.details = Some(details);
-        self
+    ///
+    /// A `details` that is not a JSON object is preserved under a `"details"` key, because an
+    /// object is the only shape that can carry both it and the source:
+    ///
+    /// ```rust
+    /// use axum_api_kit::ApiError;
+    ///
+    /// let err = ApiError::new("DB_ERROR", "query failed")
+    ///     .with_details(serde_json::json!(["row 1", "row 2"]))
+    ///     .with_source("SELECT * FROM users");
+    ///
+    /// assert_eq!(
+    ///     serde_json::to_value(&err).unwrap(),
+    ///     serde_json::json!({
+    ///         "code": "DB_ERROR",
+    ///         "message": "query failed",
+    ///         "details": {
+    ///             "details": ["row 1", "row 2"],
+    ///             "source": "SELECT * FROM users"
+    ///         }
+    ///     })
+    /// );
+    /// ```
+    pub fn with_source(self, source: &str) -> Self {
+        self.merge_source(Value::String(source.to_string()))
     }
 
     /// Convert this error into an RFC 9457 [`Problem`](crate::Problem) response for the
