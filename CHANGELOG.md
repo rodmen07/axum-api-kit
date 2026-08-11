@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`openapi` + `extract`: the pagination extractors' query parameters now enter the
+  generated document.** `Pagination` and `CursorPagination` derive
+  `utoipa::IntoParams`, so a handler documented with
+  `#[utoipa::path(..., params(Pagination))]` contributes `limit`/`offset` (and
+  `cursor`/`limit`) as `in: query` parameters carrying the defaults and bounds the
+  extractors already enforce — `limit` with `default: 50`, `minimum: 1`,
+  `maximum: 100`, `offset` with `default: 0`, and every one of them
+  `required: false`. Previously the kit enforced these rules while the spec it
+  generated said nothing about them, so a generated client had to be told by hand.
+  Gated on `openapi` **and** `extract` jointly rather than behind a new feature flag;
+  a consumer with only one of the two sees no change, and no dependency was added
+  (`utoipa` is already the `openapi` dependency). `CursorPagination::cursor` needs no
+  nullability opt-out, unlike the response types: `IntoParams` emits `Option<String>`
+  as `{"type": "string"}` with `required: false`, where `ToSchema` would have produced
+  a `string | null` union. That is measured on the generated document and guarded
+  class-wide by `no_contributed_parameter_admits_null`. The declared bounds are pinned to
+  `Pagination::MAX_LIMIT` / `DEFAULT_LIMIT` by `tests/openapi_params.rs`, so the
+  document cannot drift away from what the code enforces.
+
 ### Fixed
 
 - **`ApiError::with_source` no longer silently discards the source.** Both

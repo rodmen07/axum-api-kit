@@ -16,6 +16,11 @@ use crate::{ApiError, CursorResponse, ListResponse};
 ///
 /// Requires the `extract` feature.
 ///
+/// With the `openapi` feature also enabled, this type derives [`utoipa::IntoParams`], so a
+/// handler documented with `#[utoipa::path(..., params(Pagination))]` contributes `limit` and
+/// `offset` as query parameters carrying the same defaults and bounds enforced below. The
+/// derive is gated on `openapi` **and** `extract` jointly rather than on a flag of its own.
+///
 /// # Example
 ///
 /// ```rust,no_run
@@ -34,10 +39,28 @@ use crate::{ApiError, CursorResponse, ListResponse};
 /// }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+// `parameter_in` has NO default in the derive: `IntoParams::into_params` falls back to
+// `ParameterIn::default()`, which is `Path`. Omitting this line would document both fields as
+// path parameters. `tests/openapi_params.rs` asserts `in: query` for exactly that reason.
+#[cfg_attr(feature = "openapi", into_params(parameter_in = Query))]
 pub struct Pagination {
     /// Maximum number of items to return (clamped to `1..=`[`Pagination::MAX_LIMIT`]).
+    //
+    // The bounds below are numeric LITERALS because they must be: utoipa's `minimum`/`maximum`
+    // parse a literal token and reject a constant path. Duplicating the values is therefore
+    // unavoidable, and duplicating them deliberately is what makes the drift detectable —
+    // `tests/openapi_params.rs` reads the generated document on one side and
+    // `Pagination::DEFAULT_LIMIT` / `MAX_LIMIT` on the other, so a change to either constant
+    // that is not mirrored here fails the suite. Naming the constants in the attribute instead
+    // would make that guard compare a value against itself.
+    #[cfg_attr(
+        feature = "openapi",
+        param(required = false, default = 50, minimum = 1, maximum = 100)
+    )]
     pub limit: u32,
     /// Zero-based offset of the first item in the page.
+    #[cfg_attr(feature = "openapi", param(required = false, default = 0))]
     pub offset: u32,
 }
 
@@ -87,6 +110,9 @@ where
 /// Reads an opaque `cursor` token (absent on the first page) and a `limit` that is clamped
 /// the same way as [`Pagination`]. Requires the `extract` feature.
 ///
+/// With the `openapi` feature also enabled, this type derives [`utoipa::IntoParams`] on the same
+/// joint gate as [`Pagination`], contributing `cursor` and `limit` as query parameters.
+///
 /// # Example
 ///
 /// ```rust,no_run
@@ -105,10 +131,27 @@ where
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+#[cfg_attr(feature = "openapi", into_params(parameter_in = Query))]
 pub struct CursorPagination {
     /// Opaque cursor token for the requested page. `None` on the first page.
+    //
+    // Deliberately carries NO `param(...)` attribute, which is the opposite of what the response
+    // types needed: `CursorResponse::next_cursor` must spell out `schema(nullable = false)`
+    // because `ToSchema` turns `Option<String>` into a `string | null` union, but `IntoParams`
+    // does not — it emits `{"type": "string"}` with `required: false` unaided. Both halves were
+    // MEASURED on the generated document, not assumed: adding `param(required = false,
+    // nullable = false)` here changes not one byte of the document, so the attribute would have
+    // been a no-op that a later reader would credit for keeping `null` out.
+    // `tests/openapi_params.rs::no_contributed_parameter_admits_null` is what actually holds the
+    // line, and it fires on a real null (proven by a control that adds `param(nullable)`).
     pub cursor: Option<String>,
     /// Maximum number of items to return (clamped to `1..=`[`Pagination::MAX_LIMIT`]).
+    // Literals, and the same drift guard, as `Pagination::limit` above.
+    #[cfg_attr(
+        feature = "openapi",
+        param(required = false, default = 50, minimum = 1, maximum = 100)
+    )]
     pub limit: u32,
 }
 
