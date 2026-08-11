@@ -1,9 +1,56 @@
 # Expansion proposal: the axum-api-kit feature track after v2.1.0
 
-Status: **PROPOSED 2026-08-09 — awaiting the user's decision.** This document is the
-deliverable of `ROADMAP.md`'s v2.2.0 done-when step 1 (drafted by the product analyst;
-the user owns the choice). Nothing in it is started, promised, or scheduled beyond
-what `ROADMAP.md` already schedules: a v2.2.0 release whose scope is decided here.
+Status: **ACCEPTED 2026-08-10.** Proposed 2026-08-09 (PR #20, squash `f42db4d`) as the
+deliverable of `ROADMAP.md`'s v2.2.0 done-when step 1; answered by the owner on
+2026-08-10. The decision block immediately below is the record; the candidate and
+default sections after it are kept EXACTLY as they were proposed.
+
+## DECISION — ACCEPTED 2026-08-10
+
+**The owner's answer, verbatim: "Accepted".** Under this document's own "How to
+answer" rule, that one word takes all five defaults D1-D5 exactly as written. No
+default was overridden and no clause was amended, so the decision is stated below
+rather than left to be re-derived from the defaults by whoever reads this next.
+
+- **Accepted into v2.2.0: C2 and C3.** C2 puts the `extract` flag's `Pagination`
+  and `CursorPagination` query parameters into the generated OpenAPI document via
+  `utoipa::IntoParams`, gated on `openapi` + `extract` jointly and NOT behind a new
+  flag (D2). C3 ships `api_fallback()` (404 `ApiError` for unmatched paths) and the
+  documented 405 `MethodNotAllowed` mapping under the existing `router` flag, with
+  the RFC 9457 sibling a separately named constructor under `router` + `problem`,
+  the format chosen by naming it rather than by feature-sniffing (D3). One theme,
+  as D1 framed it: *the API contract is fully described and fully JSON*.
+- **Declined: C5**, the request-timeout layer, exactly as D5 recommended — a new
+  runtime dependency (`tower`, currently dev-only) for behaviour consumers already
+  compose in about ten lines. It is on record as considered-and-rejected rather
+  than unconsidered. Re-proposing it requires NEW EVIDENCE, and the rejection is
+  explicitly conditional on `tower` remaining dev-only and on axum offering no
+  native timeout surface; if either changes, that is the new evidence.
+- **Deferred, in this order: C1, then C4, then C6** (D4), as v2.3.0+ candidates,
+  each entering only through its own short design-note PR per the ROADMAP's
+  Later-section convention. **Deferred is not declined:** nothing about C1, C4 or
+  C6 was rejected on merit. C1 leads because it is the largest consumer-visible
+  gap; its `etag`-flag and hash-choice questions are decided in its design note,
+  not here.
+- **Defaults taken: D1, D2, D3, D4, D5 — all five as written, none overridden.**
+
+**What this decision commit does and does not do.** It records the answer here and
+executes this document's done-when step 3 by replacing `ROADMAP.md`'s `### v2.2.0`
+placeholder with the accepted scope and a done-when that a build, a test, or a CI
+run can close. It does **not** implement C2 or C3: each is its own PR with its own
+tests, which is exactly how D1 sized them. A docs-only commit is the correct and
+complete shape for recording a decision.
+
+**Nothing below was deleted, including the options not taken.** The record of what
+was weighed is the point — a later run re-opening C5, or re-ordering the deferred
+queue, has to be able to see what this decision was made against.
+
+---
+
+*The three sections that follow — "How to answer", "What happens on acceptance",
+and every candidate — are the proposal AS OFFERED, preserved unedited. They read in
+the present tense because that is how they were written on 2026-08-09; the decision
+block above is what is current.*
 
 **How to answer.** Every decision below is an overridable default, numbered D1-D5.
 "Accepted" as a one-word answer takes all five defaults exactly as written. Any
