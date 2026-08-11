@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`router`: unmatched routes stop speaking plain text.** New `api_fallback` (404) and
+  `api_method_not_allowed` (405) handlers, wired with `Router::fallback` and
+  `Router::method_not_allowed_fallback`, give the two responses axum otherwise sends with an
+  **empty body** an `ApiError` JSON body like every other failure the kit covers —
+  `{"code":"NOT_FOUND","message":"no route matches this path"}` and
+  `{"code":"METHOD_NOT_ALLOWED","message":"this path does not support the request method"}`,
+  both as `application/json`. Measured, not assumed: with no fallback wired axum answers an
+  unmatched path with `404`, no `Content-Type` and a zero-byte body, and a wrong method with
+  `405` and a zero-byte body — the one pair of responses in a kit-built app that a client's JSON
+  error handler cannot parse. The `Allow` header axum computes for a `405` is still sent, because
+  axum sets it on the way out rather than in the fallback. With `problem` also enabled,
+  `problem_fallback` and `problem_method_not_allowed` render the same status and the same `code`
+  as RFC 9457 `application/problem+json`; the flavour is chosen by naming the handler, so
+  enabling `problem` changes nothing about what `api_fallback` emits. Both flavours are built
+  from one shared error definition, so they cannot drift apart on status or `code`. No new
+  feature flag and no new dependency; `health_routes` is untouched. Note the axum ordering rule
+  the rustdoc and `tests/router_fallbacks.rs` both pin: `method_not_allowed_fallback` only
+  rewrites routes registered *before* the call, so wire it after the last `route(..)`.
 - **`openapi` + `extract`: the pagination extractors' query parameters now enter the
   generated document.** `Pagination` and `CursorPagination` derive
   `utoipa::IntoParams`, so a handler documented with

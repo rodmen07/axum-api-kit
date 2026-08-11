@@ -43,6 +43,10 @@
 //!
 //! - `health_routes` and `liveness` (feature `router`) - a `Router` exposing `/healthz` and
 //!   `/readyz` probes backed by `HealthResponse`.
+//! - `api_fallback` and `api_method_not_allowed` (feature `router`) - fallback handlers so the
+//!   two responses axum otherwise sends with an empty body, `404` for an unmatched path and
+//!   `405` for a wrong method, carry an `ApiError` JSON body like every other failure the kit
+//!   covers. Wire them with `Router::fallback` and `Router::method_not_allowed_fallback`.
 //! - `cors_allowing` and `cors_permissive` (feature `cors`) - build a `tower_http`
 //!   `CorsLayer` with sensible defaults.
 //!
@@ -60,6 +64,10 @@
 //!   `ProblemRejection` (same status codes, same `code` and field-level details,
 //!   `Content-Type` negotiated via `ProblemFormat`). The existing extractors' rejection
 //!   bodies never change; the format is chosen by naming the extractor in the handler.
+//! - `problem_fallback` and `problem_method_not_allowed` (features `problem` + `router`) -
+//!   RFC 9457 siblings of the two fallback handlers above, rendering the same status and the
+//!   same `code` as `application/problem+json`. Same rule: the flavour is chosen by naming the
+//!   handler, so enabling `problem` never changes what `api_fallback` emits.
 //!
 //! With the `openapi` feature, all four response types derive `utoipa::ToSchema` so they
 //! can be referenced from a `utoipa` `OpenApi` document and appear in generated specs.
@@ -139,7 +147,9 @@ pub use problemjson::ProblemRejection;
 #[cfg(all(feature = "problem", feature = "validator"))]
 pub use problemjson::ProblemValidatedJson;
 #[cfg(feature = "router")]
-pub use router::{health_routes, liveness};
+pub use router::{api_fallback, api_method_not_allowed, health_routes, liveness};
+#[cfg(all(feature = "router", feature = "problem"))]
+pub use router::{problem_fallback, problem_method_not_allowed};
 pub use success::{Accepted, Created, NoContent};
 #[cfg(feature = "trace")]
 pub use trace::{propagate_request_id, trace_requests, RequestId, REQUEST_ID_HEADER};
