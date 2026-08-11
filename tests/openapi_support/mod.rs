@@ -149,6 +149,68 @@ pub fn every_property(doc: &Value) -> Vec<(String, String, Value)> {
     out
 }
 
+/// Every parameter object one operation declares, in document order.
+///
+/// Fails loudly when the path, the operation, or the `parameters` array is missing, and when the
+/// array is EMPTY — an operation that contributes no parameters would otherwise satisfy every
+/// "no parameter does X" assertion for free, which is the vacuity hazard that made
+/// `tests/problem_openapi.rs`'s predecessor worthless.
+pub fn operation_parameters(doc: &Value, path: &str, method: &str) -> Vec<Value> {
+    let operation = doc
+        .get("paths")
+        .and_then(|p| p.get(path))
+        .and_then(|p| p.get(method))
+        .unwrap_or_else(|| {
+            panic!(
+                "no `paths.{path}.{method}` in the generated document; documented paths: {:?}",
+                doc.get("paths")
+                    .and_then(|p| p.as_object())
+                    .map(|m| m.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            )
+        });
+    let parameters = operation
+        .get("parameters")
+        .and_then(|p| p.as_array())
+        .unwrap_or_else(|| panic!("`paths.{path}.{method}` declares no `parameters` array at all"));
+    assert!(
+        !parameters.is_empty(),
+        "`paths.{path}.{method}` declares an EMPTY `parameters` array, so every parameter \
+         assertion below would pass without observing anything"
+    );
+    parameters.clone()
+}
+
+/// The parameter names one operation declares, sorted.
+pub fn parameter_names(doc: &Value, path: &str, method: &str) -> Vec<String> {
+    let mut names: Vec<String> = operation_parameters(doc, path, method)
+        .iter()
+        .map(|p| {
+            p.get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or_else(|| panic!("a parameter of `{path}.{method}` declares no `name`"))
+                .to_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// One named parameter of an operation, failing loudly with the names that ARE declared.
+pub fn parameter(doc: &Value, path: &str, method: &str, name: &str) -> Value {
+    let parameters = operation_parameters(doc, path, method);
+    parameters
+        .iter()
+        .find(|p| p.get("name").and_then(|n| n.as_str()) == Some(name))
+        .unwrap_or_else(|| {
+            panic!(
+                "`paths.{path}.{method}` declares no `{name}` parameter; declared: {:?}",
+                parameter_names(doc, path, method)
+            )
+        })
+        .clone()
+}
+
 /// The sub-paths within one property body that admit `null`, as either an OpenAPI 3.1 type union
 /// (`"type": ["string", "null"]`) or a 3.0-style `"nullable": true`. Recurses into `items` so an
 /// element type is caught too.

@@ -63,6 +63,11 @@
 //!
 //! With the `openapi` feature, all four response types derive `utoipa::ToSchema` so they
 //! can be referenced from a `utoipa` `OpenApi` document and appear in generated specs.
+//! With `openapi` **and** `extract` both enabled, `Pagination` and `CursorPagination`
+//! additionally derive `utoipa::IntoParams`, so `#[utoipa::path(..., params(Pagination))]`
+//! documents `limit`/`offset` (and `cursor`/`limit`) as query parameters carrying the same
+//! defaults and bounds the extractors enforce — no new feature flag, and nothing changes for
+//! a consumer who enables only one of the two.
 //!
 //! # Quick Start
 //!
