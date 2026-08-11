@@ -323,47 +323,113 @@ fn api_error_service_unavailable_sends_a_retry_after_header() {
     assert_eq!(header(&res, RETRY_AFTER), "120");
 }
 
-// --- Known gaps: `with_source` is silently lossy, and `details` can serialize as `null` ---------
+// --- `with_source` and `with_details` compose in either order -----------------------------------
 //
-// Three characterisation tests (L-052 shape, the `known_gap_` naming this repo already uses in
-// `tests/openapi.rs`). They assert what the code does TODAY, not what it should do, so the two
-// filed-not-fixed defects have a mechanical existence: fixing either one MUST redden its test, and
-// that red is the signal to close the backlog entry and delete the test. Both fixes change bytes a
-// published 2.x consumer can already observe, which is a decision about the shipped surface rather
-// than a test fix, so this QA increment files them instead of taking them.
+// Both builders write into the single `details` field, and until 2026-08-10 either one could
+// silently destroy the other's value: `with_details` replaced the whole value, dropping a `source`
+// set before it, and `with_source` wrote only into a JSON OBJECT, dropping the source whenever
+// `details` held an array, a string, a number or `null`. Five input shapes lost data; the two the
+// backlog filed are the first two below.
+//
+// The six tests below are the fix's byte contract. One input shape per test rather than one
+// combined assertion, because a test aborts at its first failed assertion, so a single merge
+// regression would otherwise be reported by whichever shape happens to run first and say nothing
+// about the rest. The last two shapes were already correct before the fix and their bytes are
+// locked here to prove the fix changed the wire ONLY where data was being discarded.
 
-/// `with_details` REPLACES the whole `details` value, so a `source` added before it is dropped —
-/// silently, with no error and no warning. This is the exact order `with_source`'s own rustdoc
-/// example demonstrated until 2026-08-10 (that example asserts nothing, so it passed while showing
-/// the data loss). The doc now shows the working order; the behaviour below is unchanged.
+/// `with_details` replaces the whole `details` value, so it must carry a `source` set before it
+/// across the replacement. This is the exact order `with_source`'s own rustdoc example
+/// demonstrated until 2026-08-10, when the example asserted nothing and so passed while showing
+/// the data loss.
 #[tokio::test]
-async fn known_gap_with_source_is_dropped_when_with_details_follows_it() {
+async fn with_source_survives_a_later_with_details() {
     let err = ApiError::new("NOT_FOUND", "user not found")
         .with_source("SELECT * FROM users WHERE id = ?")
         .with_details(json!({ "user_id": 42 }));
     let (_, _, body) = parts((StatusCode::NOT_FOUND, Json(err)).into_response()).await;
     assert_eq!(
-        body, r#"{"code":"NOT_FOUND","message":"user not found","details":{"user_id":42}}"#,
-        "GAP CLOSED: with_source now survives a later with_details — delete this test and close \
-         the backlog entry"
+        body,
+        r#"{"code":"NOT_FOUND","message":"user not found","details":{"source":"SELECT * FROM users WHERE id = ?","user_id":42}}"#
     );
 }
 
-/// `with_source` writes into `details` only when `details` is a JSON OBJECT (`if let
-/// Value::Object`). Any other `Value` — an array, a string, a number, `null` — silently discards
-/// the source instead.
+/// A JSON object is the only `details` shape that can hold both the caller's value and a
+/// `"source"`, so attaching a source to a non-object value nests that value under `"details"`
+/// rather than discarding either side.
 #[tokio::test]
-async fn known_gap_with_source_is_dropped_when_details_is_not_an_object() {
+async fn with_source_preserves_a_non_object_details_by_nesting_it() {
     let err = ApiError::new("DB_ERROR", "query failed")
         .with_details(json!(["row 1", "row 2"]))
         .with_source("SELECT * FROM users");
     let (_, _, body) = parts((StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()).await;
     assert_eq!(
-        body, r#"{"code":"DB_ERROR","message":"query failed","details":["row 1","row 2"]}"#,
-        "GAP CLOSED: with_source now survives a non-object `details` — delete this test and close \
-         the backlog entry"
+        body,
+        r#"{"code":"DB_ERROR","message":"query failed","details":{"details":["row 1","row 2"],"source":"SELECT * FROM users"}}"#
     );
 }
+
+/// The composition of the two shapes above, and the one the backlog entry did not name: a source
+/// set FIRST and then replaced by a non-object `details`. It has to survive both the replacement
+/// and the coercion.
+#[tokio::test]
+async fn with_source_survives_a_later_non_object_with_details() {
+    let err = ApiError::new("DB_ERROR", "query failed")
+        .with_source("SELECT * FROM users")
+        .with_details(json!(["row 1", "row 2"]));
+    let (_, _, body) = parts((StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()).await;
+    assert_eq!(
+        body,
+        r#"{"code":"DB_ERROR","message":"query failed","details":{"details":["row 1","row 2"],"source":"SELECT * FROM users"}}"#
+    );
+}
+
+/// The carry is not an override: a `"source"` the caller writes inside `details` is the later
+/// explicit assignment and wins. These bytes are unchanged by the fix.
+#[tokio::test]
+async fn an_explicit_source_in_with_details_wins_over_an_earlier_with_source() {
+    let err = ApiError::new("DB_ERROR", "query failed")
+        .with_source("from with_source")
+        .with_details(json!({ "source": "from with_details" }));
+    let (_, _, body) = parts((StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()).await;
+    assert_eq!(
+        body,
+        r#"{"code":"DB_ERROR","message":"query failed","details":{"source":"from with_details"}}"#
+    );
+}
+
+/// The path that always worked: an object `details` keeps its keys and gains `"source"`. Locked in
+/// bytes because the fix must not move it.
+#[tokio::test]
+async fn with_source_merges_into_an_object_details_unchanged() {
+    let err = ApiError::new("DB_ERROR", "query failed")
+        .with_details(json!({ "user_id": 123 }))
+        .with_source("SELECT * FROM users");
+    let (_, _, body) = parts((StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()).await;
+    assert_eq!(
+        body,
+        r#"{"code":"DB_ERROR","message":"query failed","details":{"source":"SELECT * FROM users","user_id":123}}"#
+    );
+}
+
+/// The other path that always worked: with no `details` set, the source creates the object. Also
+/// locked in bytes so the coercion above cannot alter it.
+#[tokio::test]
+async fn with_source_alone_creates_the_details_object_unchanged() {
+    let err = ApiError::new("DB_ERROR", "query failed").with_source("SELECT * FROM users");
+    let (_, _, body) = parts((StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()).await;
+    assert_eq!(
+        body,
+        r#"{"code":"DB_ERROR","message":"query failed","details":{"source":"SELECT * FROM users"}}"#
+    );
+}
+
+// --- Known gap: `details` can still serialize as `null` -----------------------------------------
+//
+// One characterisation test (L-052 shape, the `known_gap_` naming this repo already uses in
+// `tests/openapi.rs`). It asserts what the code does TODAY, not what it should do, so the
+// filed-not-fixed defect has a mechanical existence: fixing it MUST redden this test, and that red
+// is the signal to close the backlog entry and delete the test. The fix changes bytes a published
+// 2.x consumer can already observe, which is a decision about the shipped surface.
 
 /// `details: Option<Value>` can hold `Value::Null`, and `skip_serializing_if = "Option::is_none"`
 /// does not skip it, so `details` CAN reach the wire as `null` — contradicting both the field's own

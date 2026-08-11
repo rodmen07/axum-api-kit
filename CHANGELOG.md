@@ -9,18 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`ApiError::with_source`'s own documentation example demonstrated a chain that
-  silently discards the source.** It called `.with_source(..)` and then
-  `.with_details(..)`, and `with_details` replaces the whole `details` value, so
-  the `"source"` key never reached the wire — and because the example asserted
-  nothing, it compiled and passed as a doctest while showing the loss. The
-  example now chains them the working way round (`with_details` first) and
-  asserts the resulting JSON, so the documented shape and the behaviour cannot
-  drift apart again. `with_details` now says it replaces, and `with_source` now
-  documents the two cases that discard the source: a later `with_details`, and a
-  `details` value that is not a JSON object. **No behaviour change** — both
-  discards are unchanged, filed as a bug, and pinned by `known_gap_` tests in
-  `tests/default_response_contracts.rs`.
+- **`ApiError::with_source` no longer silently discards the source.** Both
+  builders write into the single `details` field, and five input shapes lost
+  data: `with_details` replaced the whole value, dropping a `source` set before
+  it, and `with_source` wrote only into a JSON object, dropping the source
+  whenever `details` held an array, a string, a number or `null`. Neither
+  reported anything — the diagnostic an operator deliberately attached simply
+  never reached the response. Now `with_details` carries an existing `"source"`
+  across the replacement (a `"source"` key inside the new `details` still wins,
+  being the later explicit assignment), and `with_source` coerces a non-object
+  `details` to an object, preserving the caller's value under a `"details"` key.
+  **This changes response bytes only for inputs that previously discarded data;**
+  the two shapes that already worked (an object `details`, or no `details` at
+  all) are byte-identical and locked as such in
+  `tests/default_response_contracts.rs`. `with_source`'s documentation example
+  chained the builders in the order that used to lose the source, and asserted
+  nothing, so it compiled and passed as a doctest while demonstrating the loss;
+  both examples now assert their JSON.
 
 - `ApiError::details`'s documentation claimed the field is "never sent as
   `null`". `skip_serializing_if = "Option::is_none"` does not skip
