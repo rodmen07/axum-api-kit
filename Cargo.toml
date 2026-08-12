@@ -1,6 +1,6 @@
 [package]
 name = "axum-api-kit"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2021"
 rust-version = "1.81"
 authors = ["Rod Mendoza <rodmendoza07@gmail.com>"]

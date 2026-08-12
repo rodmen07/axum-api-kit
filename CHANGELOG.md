@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-12
+
 ### Added
 
 - **`router`: unmatched routes stop speaking plain text.** New `api_fallback` (404) and
