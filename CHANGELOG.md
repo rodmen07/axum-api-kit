@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An explicit JSON `null` in `ApiError::details` is now treated as "no details" everywhere, so
+  the wire can no longer contradict the schema.** `details` is documented and generated as
+  `nullable = false` — absence is expressed by omitting the key, never by sending `null` — but
+  `#[serde(skip_serializing_if = "Option::is_none")]` skips only `None`, and `details` is the one
+  such field whose inner type (`serde_json::Value`) can itself BE null. So
+  `ApiError::new(..).with_details(serde_json::json!(null))` emitted
+  `{"code":..,"message":..,"details":null}`: a body a client generated from this crate's own
+  OpenAPI document may reject. The skip predicate is now `details_is_absent`, which treats `None`
+  and `Some(Value::Null)` alike, and two other renderings of the same value defer to it rather than
+  re-deciding — `with_source`'s coercion no longer nests a `null` under the `"details"` key
+  (which would have re-emitted the banned value one level down), and the `Problem` bridge no
+  longer copies a `null` into a `"details"` extension member. Only `null` is affected: `{}`,
+  `false`, `0` and `""` are values a caller attached and are still sent. Response bytes change
+  only for inputs that were emitting a `null` carrying no information the omitted key does not,
+  so this is classified a PATCH-level bug fix under this crate's Semver policy; no public API,
+  signature or feature flag moved (`Semver compatibility` green). The field can still HOLD
+  `Some(Value::Null)` — the fix is about what is rendered, not about rewriting the caller's value.
+
 ## [2.2.0] - 2026-08-12
 
 ### Added

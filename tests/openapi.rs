@@ -169,7 +169,9 @@ fn api_error_details_is_typed_object_not_a_nullable_union() {
 }
 
 /// CLASS GUARD. No property of any schema this crate registers may admit `null`, because every
-/// `Option` field in this crate carries `#[serde(skip_serializing_if = "Option::is_none")]`:
+/// `Option` field in this crate carries a `#[serde(skip_serializing_if = ...)]` that omits it when
+/// absent (`Option::is_none` for the fields whose inner type cannot BE null; `details_is_absent`
+/// for `ApiError::details`, whose `Value` can, so `None` and `Some(Value::Null)` are both skipped):
 /// absence is expressed by omitting the key and by staying out of `required`, never by sending
 /// `null`. `utoipa` derives nullability from `Option<T>` and so reintroduces the union by default,
 /// which is why each such field must opt out with `schema(nullable = false)`.

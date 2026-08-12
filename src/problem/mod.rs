@@ -401,7 +401,7 @@ impl IntoResponse for Problem {
 /// | status canonical reason | `title` (falls back to `code` for nonstandard statuses; cosmetic) |
 /// | `message` | `detail` |
 /// | `code` | `"code"` extension member |
-/// | `details` (when present) | `"details"` extension member, verbatim |
+/// | `details` (when present and not `null`) | `"details"` extension member, verbatim |
 ///
 /// `details` is kept under the single `"details"` key, never flattened, so
 /// validation field maps cannot collide with reserved members. `type` and
@@ -414,7 +414,10 @@ impl From<(StatusCode, ApiError)> for Problem {
             .unwrap_or_else(|| err.code.clone());
         let mut extensions = serde_json::Map::new();
         extensions.insert("code".to_owned(), serde_json::Value::String(err.code));
-        if let Some(details) = err.details {
+        // An explicit `null` is no details (`ApiError::details`), so it does not become an
+        // extension member either: the two flavours are one value rendered twice and must not
+        // disagree about whether a key is there.
+        if let Some(details) = err.details.filter(|d| !d.is_null()) {
             extensions.insert("details".to_owned(), details);
         }
         Self {

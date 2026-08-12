@@ -244,7 +244,7 @@ async fn api_error_body_bytes_are_locked() {
     assert_eq!(body, r#"{"code":"NOT_FOUND","message":"item not found"}"#);
 }
 
-/// `details` is `skip_serializing_if = "Option::is_none"`, so an error without details omits the
+/// `details` is `skip_serializing_if = "details_is_absent"`, so an error without details omits the
 /// key rather than sending `null` — the property `tests/openapi.rs` pins as `nullable = false`.
 #[tokio::test]
 async fn api_error_body_omits_details_when_none_is_set() {
@@ -423,26 +423,86 @@ async fn with_source_alone_creates_the_details_object_unchanged() {
     );
 }
 
-// --- Known gap: `details` can still serialize as `null` -----------------------------------------
+// --- An explicit `null` details is absent, in every rendering -----------------------------------
 //
-// One characterisation test (L-052 shape, the `known_gap_` naming this repo already uses in
-// `tests/openapi.rs`). It asserts what the code does TODAY, not what it should do, so the
-// filed-not-fixed defect has a mechanical existence: fixing it MUST redden this test, and that red
-// is the signal to close the backlog entry and delete the test. The fix changes bytes a published
-// 2.x consumer can already observe, which is a decision about the shipped surface.
+// These replace `known_gap_api_error_details_can_serialize_as_null`, the L-052 characterisation pin
+// that asserted the OLD wrong bytes (`{"code":..,"message":..,"details":null}`). Until 2.3.0
+// `skip_serializing_if = "Option::is_none"` did not skip `Some(Value::Null)`, so the wire could
+// send a `null` that `schema(nullable = false)` — enforced document-side by
+// `tests/openapi.rs::no_registered_property_admits_null` — says cannot occur. `details_is_absent`
+// closed that, and these bind the decision at the wire rather than restating it in prose.
+//
+// The reach of the fix is what these cover, because the builder is not the only way in: `details`
+// is a `pub` field, `with_source` coerces a non-object `details` into a nested object, and the
+// `Problem` bridge renders the same value a second time (`tests/problem_interactions.rs`). A fix
+// applied at only one of those moves the `null` rather than removing it.
 
-/// `details: Option<Value>` can hold `Value::Null`, and `skip_serializing_if = "Option::is_none"`
-/// does not skip it, so `details` CAN reach the wire as `null` — contradicting both the field's own
-/// rustdoc and the `schema(nullable = false)` that PR #16 gave it, which
-/// `tests/openapi.rs::no_registered_property_admits_null` now enforces on the document side. The
-/// document and the wire disagree for a value the public API can construct.
+/// The filed repro: the builder path.
 #[tokio::test]
-async fn known_gap_api_error_details_can_serialize_as_null() {
+async fn api_error_body_omits_details_given_an_explicit_null() {
     let err = ApiError::new("NOT_FOUND", "user not found").with_details(json!(null));
     let (_, _, body) = parts((StatusCode::NOT_FOUND, Json(err)).into_response()).await;
+    assert_eq!(body, r#"{"code":"NOT_FOUND","message":"user not found"}"#);
+}
+
+/// `details` is `pub`, so the builder is not the only way to set it, and a fix that lived in
+/// `with_details` would leave this path emitting the `null` the schema forbids.
+#[tokio::test]
+async fn api_error_body_omits_details_given_a_null_assigned_to_the_field() {
+    let mut err = ApiError::new("NOT_FOUND", "user not found");
+    err.details = Some(json!(null));
+    let (_, _, body) = parts((StatusCode::NOT_FOUND, Json(err)).into_response()).await;
+    assert_eq!(body, r#"{"code":"NOT_FOUND","message":"user not found"}"#);
+}
+
+/// Absence is `null` ONLY. This is the over-breadth control: an empty object is a value the caller
+/// chose to attach, and skipping it would be a second, quieter data loss of the `with_source` kind.
+#[tokio::test]
+async fn api_error_body_keeps_an_empty_object_details() {
+    let err = ApiError::new("VALIDATION_ERROR", "invalid input").with_details(json!({}));
+    let (_, _, body) = parts((StatusCode::UNPROCESSABLE_ENTITY, Json(err)).into_response()).await;
     assert_eq!(
-        body, r#"{"code":"NOT_FOUND","message":"user not found","details":null}"#,
-        "GAP CLOSED: `details` no longer serializes as null — delete this test and close the \
-         backlog entry"
+        body,
+        r#"{"code":"VALIDATION_ERROR","message":"invalid input","details":{}}"#
+    );
+}
+
+/// The same control for a falsy scalar: `false` is not `null`.
+#[tokio::test]
+async fn api_error_body_keeps_a_false_details() {
+    let err = ApiError::new("VALIDATION_ERROR", "invalid input").with_details(json!(false));
+    let (_, _, body) = parts((StatusCode::UNPROCESSABLE_ENTITY, Json(err)).into_response()).await;
+    assert_eq!(
+        body,
+        r#"{"code":"VALIDATION_ERROR","message":"invalid input","details":false}"#
+    );
+}
+
+/// `with_source` coerces a non-object `details` under a nested `"details"` key (PR #24). A `null`
+/// must not take that path: nesting it would re-emit the banned value one level down, where the
+/// field's own `skip_serializing_if` can no longer see it.
+#[tokio::test]
+async fn a_null_details_is_not_nested_when_a_source_is_attached() {
+    let err = ApiError::new("DB_ERROR", "query failed")
+        .with_details(json!(null))
+        .with_source("SELECT 1");
+    let (_, _, body) = parts((StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()).await;
+    assert_eq!(
+        body,
+        r#"{"code":"DB_ERROR","message":"query failed","details":{"source":"SELECT 1"}}"#
+    );
+}
+
+/// The other order, which reaches the nesting through `with_details`' source carry-across instead.
+/// PR #24's guarantee that a source survives a later `with_details` still holds for a `null` one.
+#[tokio::test]
+async fn a_source_survives_a_later_null_with_details() {
+    let err = ApiError::new("DB_ERROR", "query failed")
+        .with_source("SELECT 1")
+        .with_details(json!(null));
+    let (_, _, body) = parts((StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()).await;
+    assert_eq!(
+        body,
+        r#"{"code":"DB_ERROR","message":"query failed","details":{"source":"SELECT 1"}}"#
     );
 }
