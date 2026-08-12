@@ -100,6 +100,44 @@ async fn bridged_apierror_serves_problem_wire_shape() {
     );
 }
 
+/// The sibling rendering of the same value. `ApiError::details` treats an explicit JSON `null` as
+/// absent and omits the key (`tests/default_response_contracts.rs`); the RFC 9457 flavour renders
+/// that same `ApiError` a second time through its own bridge, so a fix applied only to the
+/// `Serialize` impl would move the `null` here instead of removing it. Bound as a whole-body
+/// equality, so a `"details": null` member reappearing fails on the extension SET, not on a
+/// hand-listed key.
+#[tokio::test]
+async fn bridged_apierror_omits_a_null_details_extension() {
+    async fn missing_item() -> impl IntoResponse {
+        ApiError::new("NOT_FOUND", "item 42 does not exist")
+            .with_details(json!(null))
+            .into_problem(StatusCode::NOT_FOUND)
+    }
+
+    let app: Router = Router::new().route("/items/42", get(missing_item));
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/items/42")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = body_json(res).await;
+    assert_eq!(
+        body,
+        json!({
+            "title": "Not Found",
+            "status": 404,
+            "detail": "item 42 does not exist",
+            "code": "NOT_FOUND"
+        })
+    );
+}
+
 #[tokio::test]
 async fn retry_after_factory_keeps_flat_apierror_shape() {
     async fn rate_limited() -> impl IntoResponse {

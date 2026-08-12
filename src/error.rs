@@ -37,19 +37,33 @@ pub struct ApiError {
     pub message: String,
     /// Optional structured details (field-level validation errors, etc.).
     ///
-    /// Omitted from the body entirely when `None` (`skip_serializing_if`), so the schema declares
-    /// `nullable = false` — see [`CursorResponse::next_cursor`] for the same reasoning.
+    /// Omitted from the body entirely when absent, so the schema declares `nullable = false` —
+    /// see [`CursorResponse::next_cursor`] for the same reasoning.
     ///
-    /// Known gap, pinned by `known_gap_api_error_details_can_serialize_as_null` in
-    /// `tests/default_response_contracts.rs`: `Option::is_none` does not skip `Some(Value::Null)`,
-    /// so setting this field to an explicit JSON `null` (`with_details(json!(null))`) DOES emit
-    /// `"details": null` — a value the `nullable = false` schema says cannot occur. Prefer leaving
-    /// it `None` over setting it to `null`.
+    /// **An explicit JSON `null` counts as absent**, on the wire and in every rendering: `None` and
+    /// `Some(Value::Null)` both omit the key. `Option::is_none` alone does not skip
+    /// `Some(Value::Null)`, so until 2.3.0 this field could reach the wire as `"details": null` —
+    /// a value the `nullable = false` schema says cannot occur — for anything the public API can
+    /// build, including `with_details(json!(null))` and a direct assignment to this field. Only
+    /// `null` is treated this way: an empty object, `false` and `0` are real values and are sent.
     ///
     /// [`CursorResponse::next_cursor`]: crate::CursorResponse::next_cursor
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "details_is_absent")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>, nullable = false))]
     pub details: Option<Value>,
+}
+
+/// Whether [`ApiError::details`] carries nothing worth sending.
+///
+/// `None` and `Some(Value::Null)` are the same statement — "there are no details" — so they render
+/// the same way: the key is omitted. This is the ONE definition of "absent details" in the crate;
+/// [`ApiError::merge_source`] and the [`Problem`](crate::Problem) bridge both defer to it rather
+/// than re-deciding, so no rendering of one value can emit a `null` another omits.
+///
+/// It is deliberately narrower than "falsy": `{}`, `false`, `0` and `""` are values a caller chose
+/// to attach and are sent as-is. Only the JSON literal `null` is treated as absence.
+fn details_is_absent(details: &Option<Value>) -> bool {
+    matches!(details, None | Some(Value::Null))
 }
 
 /// The key inside `details` under which [`ApiError::with_source`] records the source.
@@ -78,6 +92,9 @@ impl ApiError {
     /// [`with_source`](Self::with_source) is carried across the replacement, so the two builders
     /// compose in either order. A `"source"` key inside `details` itself wins, being the later
     /// explicit assignment.
+    ///
+    /// Passing an explicit JSON `null` means "no details" and emits no `details` key — see the
+    /// [field](Self::details) for why. Every other value, including `{}` and `false`, is sent.
     ///
     /// # Example
     ///
@@ -117,6 +134,13 @@ impl ApiError {
     /// Record `source` at `details.source`, coercing `details` to an object first so no input
     /// shape can silently discard either side.
     fn merge_source(mut self, source: Value) -> Self {
+        // Collapse "absent by any spelling" to `None` FIRST, deferring to the one definition, so
+        // the arms below only ever see a real value. Without this an explicit `null` would be
+        // preserved under the nested key and re-emit, one level down, the `null` the field itself
+        // no longer sends.
+        if details_is_absent(&self.details) {
+            self.details = None;
+        }
         let mut map = match self.details.take() {
             None => serde_json::Map::new(),
             Some(Value::Object(map)) => map,
