@@ -22,6 +22,21 @@ use serde::Serialize;
 /// the common REST convention for `POST` create endpoints. Optionally sets a
 /// `Location` header pointing at the new resource via [`Created::with_location`].
 ///
+/// # Known gap: a body that fails to serialize still reports `201`
+///
+/// If `T`'s `Serialize` impl returns an error, the response is **`201 Created`**
+/// with `Content-Type: text/plain; charset=utf-8` and the serde error message as
+/// the body — and, if one was set, the `Location` header is still attached. The
+/// status axum's own [`Json`] produces for that case (`500 Internal Server
+/// Error`) is overwritten, because the status is applied after the body is
+/// rendered. [`ListResponse`](crate::ListResponse) and
+/// [`CursorResponse`](crate::CursorResponse) take the same `T` and correctly
+/// answer `500`.
+///
+/// This is documented rather than fixed because changing it changes bytes a
+/// published 2.x consumer can already observe; it is pinned by the `known_gap_`
+/// tests in `tests/default_response_contracts.rs`.
+///
 /// # Example
 ///
 /// ```rust
@@ -81,6 +96,14 @@ impl<T: Serialize> IntoResponse for Created<T> {
 /// Use for requests that have been accepted for processing but will complete
 /// asynchronously - the body typically describes how to track the work (e.g. a
 /// job id or a status URL).
+///
+/// # Known gap: a body that fails to serialize still reports `202`
+///
+/// Same shape as [`Created`]: a failing `Serialize` impl yields **`202
+/// Accepted`** with a `text/plain` serde error message as the body, because the
+/// status is applied after [`Json`] has already rendered its `500`. Documented
+/// rather than fixed for the same reason, and pinned by the `known_gap_` tests
+/// in `tests/default_response_contracts.rs`.
 ///
 /// # Example
 ///
