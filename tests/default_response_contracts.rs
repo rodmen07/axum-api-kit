@@ -1,7 +1,8 @@
 //! Response-level contracts for the response types available with **no feature flags**.
 //!
-//! `ListResponse`, `CursorResponse`, `HealthResponse` and `ApiError` are what a consumer gets from
-//! a bare `axum-api-kit = "2"`, and they are the crate's oldest surfaces (`ListResponse`,
+//! `ListResponse`, `CursorResponse`, `HealthResponse`, `ApiError` and the success-side helpers
+//! `Created` / `Accepted` / `NoContent` are what a consumer gets from a bare
+//! `axum-api-kit = "2"`, and they are the crate's oldest surfaces (`ListResponse`,
 //! `HealthResponse` and `ApiError` all landed in the same 2026-05-17 commit, `67e1c80`). Until this
 //! file existed, none of their response-level behaviour was exercised anywhere in the repo under
 //! the default feature set:
@@ -20,6 +21,19 @@
 //!   crate emits, and whether the `Retry-After` header actually reaches the wire, were unobserved.
 //!   `ApiError` appeared in `tests/` only in `tests/openapi.rs` (schema level, `openapi`-gated) and
 //!   `tests/problem_interactions.rs` (as an input to the `Problem` bridges, `problem`-gated).
+//! * `Created`, `Accepted` and `NoContent` — `src/success.rs`, shipped in 1.1.0 on 2026-06-07 and
+//!   added here 2026-08-13 — appeared in `tests/` **not at all**: a `grep -rn` for their names
+//!   across the whole directory returned zero hits before this section. Their six unit tests in
+//!   `src/success.rs` do render a `Response`, unlike `ApiError`'s, but they read it through
+//!   `serde_json::from_slice(..).unwrap_or(Value::Null)` and assert one navigated field
+//!   (`body["id"] == "1"`), so the `Content-Type` of every created resource this crate emits, the
+//!   exact body bytes, and everything axum's own service stack adds on the way out were
+//!   unobserved. None of the three had ever been driven through a real `Router`.
+//!
+//! The `known_gap_` block at the end of this file pins a defect that first coverage found; see the
+//! `## Bugs` entry it names. The `ListResponse` / `CursorResponse` tests beside it are the
+//! contrast that scopes the defect, not decoration — they take the identical unserializable
+//! payload and are the crate's own demonstration of the correct answer.
 //!
 //! Deliberately NOT feature-gated: this file must run under plain `cargo test`, which is the
 //! `Test, Lint, Format` job's default-feature step (`.github/workflows/ci.yml`). Every other
@@ -31,21 +45,38 @@
 //! the body one and report nothing about it.
 
 use axum::{
+    body::Body,
     http::{
-        header::{CONTENT_TYPE, RETRY_AFTER},
-        HeaderName, StatusCode,
+        header::{CONTENT_LENGTH, CONTENT_TYPE, LOCATION, RETRY_AFTER},
+        HeaderName, Request, StatusCode,
     },
     response::{IntoResponse, Response},
-    Json,
+    routing::{delete, post},
+    Json, Router,
 };
-use axum_api_kit::{ApiError, CursorResponse, HealthResponse, ListResponse};
-use serde::Serialize;
+use axum_api_kit::{
+    Accepted, ApiError, Created, CursorResponse, HealthResponse, ListResponse, NoContent,
+};
+use serde::{Serialize, Serializer};
 use serde_json::json;
 use std::time::Duration;
+use tower::ServiceExt;
 
 #[derive(Serialize)]
 struct Item {
     id: String,
+}
+
+/// A payload whose `Serialize` impl fails, the way a domain type that validates on the way out
+/// would. Nothing about it is exotic: `serde` lets any `Serialize` impl return an error, and the
+/// response types below are all generic over `T: Serialize`, so this input is reachable from
+/// ordinary use of the public API.
+struct Unserializable;
+
+impl Serialize for Unserializable {
+    fn serialize<S: Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
+        Err(serde::ser::Error::custom("payload cannot be serialized"))
+    }
 }
 
 /// Render a response and return its status, `Content-Type` and body bytes.
@@ -505,4 +536,333 @@ async fn a_source_survives_a_later_null_with_details() {
         body,
         r#"{"code":"DB_ERROR","message":"query failed","details":{"source":"SELECT 1"}}"#
     );
+}
+
+// --- Created ----------------------------------------------------------------------------------
+//
+// `src/success.rs`, shipped in 1.1.0 (2026-06-07). First response-level coverage, 2026-08-13.
+
+fn created() -> Created<Item> {
+    Created::new(Item { id: "42".into() })
+}
+
+#[tokio::test]
+async fn created_status_is_201() {
+    let (status, _, _) = parts(created().into_response()).await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn created_content_type_is_application_json() {
+    let (_, content_type, _) = parts(created().into_response()).await;
+    assert_eq!(content_type, "application/json");
+}
+
+#[tokio::test]
+async fn created_body_bytes_are_locked() {
+    let (_, _, body) = parts(created().into_response()).await;
+    assert_eq!(body, r#"{"id":"42"}"#);
+}
+
+/// The resource is serialized DIRECTLY, not wrapped in a `data` envelope like `ListResponse`.
+/// That is the documented REST convention this type exists to follow, and it is the half of the
+/// contract a `body["id"]`-style assertion cannot see: an added envelope keeps `body["id"]`
+/// working only if the navigation changes with it, whereas the byte lock above moves.
+#[tokio::test]
+async fn created_omits_the_location_header_when_none_is_set() {
+    let res = created().into_response();
+    assert_eq!(header(&res, LOCATION), "<absent>");
+}
+
+#[tokio::test]
+async fn created_with_location_sets_the_header() {
+    let res = created().with_location("/items/42").into_response();
+    assert_eq!(header(&res, LOCATION), "/items/42");
+}
+
+#[tokio::test]
+async fn created_with_location_leaves_the_body_bytes_unchanged() {
+    let (_, _, body) = parts(created().with_location("/items/42").into_response()).await;
+    assert_eq!(body, r#"{"id":"42"}"#);
+}
+
+/// Documented behaviour, pinned so it cannot drift into a panic: a value that cannot be a header
+/// (here an embedded newline) drops the header rather than aborting the response.
+#[tokio::test]
+async fn created_omits_a_location_that_cannot_be_a_header_value() {
+    let res = created().with_location("/items/\n42").into_response();
+    assert_eq!(header(&res, LOCATION), "<absent>");
+}
+
+/// The other clause of that same behaviour, split out because a test stops at its first failed
+/// assertion: dropping the header must not disturb the status.
+#[tokio::test]
+async fn created_still_reports_201_when_the_location_is_dropped() {
+    let (status, _, _) = parts(created().with_location("/items/\n42").into_response()).await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+// --- Accepted ---------------------------------------------------------------------------------
+
+fn accepted() -> Accepted<Item> {
+    Accepted::new(Item { id: "job-1".into() })
+}
+
+#[tokio::test]
+async fn accepted_status_is_202() {
+    let (status, _, _) = parts(accepted().into_response()).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+}
+
+#[tokio::test]
+async fn accepted_content_type_is_application_json() {
+    let (_, content_type, _) = parts(accepted().into_response()).await;
+    assert_eq!(content_type, "application/json");
+}
+
+#[tokio::test]
+async fn accepted_body_bytes_are_locked() {
+    let (_, _, body) = parts(accepted().into_response()).await;
+    assert_eq!(body, r#"{"id":"job-1"}"#);
+}
+
+// --- NoContent --------------------------------------------------------------------------------
+
+#[tokio::test]
+async fn no_content_status_is_204() {
+    let (status, _, _) = parts(NoContent.into_response()).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn no_content_body_is_zero_bytes() {
+    let (_, _, body) = parts(NoContent.into_response()).await;
+    assert_eq!(body, "");
+}
+
+/// RFC 9110 §15.3.5: a 204 carries no content, so there is no representation to describe. An
+/// `application/json` here would advertise a body that is never sent — the same docs-vs-wire
+/// class this file's `ApiError` and `CursorResponse` sections were written for.
+#[tokio::test]
+async fn no_content_omits_the_content_type_header() {
+    let (_, content_type, _) = parts(NoContent.into_response()).await;
+    assert_eq!(content_type, "<absent>");
+}
+
+// --- Through a real Router --------------------------------------------------------------------
+//
+// The assertions above call `into_response()` directly, which is what `src/success.rs`'s own unit
+// tests do. That observes the type and not the response a client receives: axum's service stack
+// adds `content-length` on the way out, and a handler returns these types by value rather than as
+// a `Response`. These drive the identical values through `Router::oneshot`, the pattern
+// `tests/router_fallbacks.rs` established, so both layers are bound.
+
+const CREATED_PATH: &str = "/items";
+const ACCEPTED_PATH: &str = "/jobs";
+const NO_CONTENT_PATH: &str = "/items/42";
+
+async fn create_item() -> Created<Item> {
+    created().with_location("/items/42")
+}
+
+async fn enqueue_job() -> Accepted<Item> {
+    accepted()
+}
+
+async fn delete_item() -> NoContent {
+    NoContent
+}
+
+fn success_router() -> Router {
+    Router::new()
+        .route(CREATED_PATH, post(create_item))
+        .route(ACCEPTED_PATH, post(enqueue_job))
+        .route(NO_CONTENT_PATH, delete(delete_item))
+}
+
+/// Drive one request through `success_router` and hand back the response.
+async fn routed(method: &str, path: &str) -> Response {
+    let request = Request::builder()
+        .method(method)
+        .uri(path)
+        .body(Body::empty())
+        .expect("request builds");
+    success_router()
+        .oneshot(request)
+        .await
+        .expect("router is infallible")
+}
+
+#[tokio::test]
+async fn routed_created_status_is_201() {
+    let (status, _, _) = parts(routed("POST", CREATED_PATH).await).await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn routed_created_body_bytes_are_locked() {
+    let (_, _, body) = parts(routed("POST", CREATED_PATH).await).await;
+    assert_eq!(body, r#"{"id":"42"}"#);
+}
+
+#[tokio::test]
+async fn routed_created_sets_the_location_header() {
+    let res = routed("POST", CREATED_PATH).await;
+    assert_eq!(header(&res, LOCATION), "/items/42");
+}
+
+#[tokio::test]
+async fn routed_accepted_status_is_202() {
+    let (status, _, _) = parts(routed("POST", ACCEPTED_PATH).await).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+}
+
+#[tokio::test]
+async fn routed_no_content_status_is_204() {
+    let (status, _, _) = parts(routed("DELETE", NO_CONTENT_PATH).await).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+/// The clause that only the routed layer can observe: `into_response()` alone sets no
+/// `content-length` at all, so a 204 that started carrying a body would look identical there.
+#[tokio::test]
+async fn routed_no_content_declares_a_zero_content_length() {
+    let res = routed("DELETE", NO_CONTENT_PATH).await;
+    assert_eq!(header(&res, CONTENT_LENGTH), "0");
+}
+
+#[tokio::test]
+async fn routed_no_content_body_is_zero_bytes() {
+    let (_, _, body) = parts(routed("DELETE", NO_CONTENT_PATH).await).await;
+    assert_eq!(body, "");
+}
+
+// --- The serialization-failure gap ------------------------------------------------------------
+//
+// `Created` and `Accepted` build their response as `(StatusCode::CREATED, Json(self.data))`. The
+// tuple's `IntoResponse` renders the LAST element first and then OVERWRITES the status, so when
+// `Json` fails to serialize and correctly produces its own `500 Internal Server Error`, the
+// success status is written back over it. The client is told the resource was created; the body
+// it receives is a `text/plain` serde error message.
+//
+// Filed, not fixed: changing either status changes bytes a published 2.x consumer can already
+// observe, which is a decision about the shipped surface rather than a test fix (the PR #15 /
+// #23 precedent in this repo). The tests below are the L-052 characterisation pins — they assert
+// today's WRONG behaviour, so the defect has a mechanical existence and cannot be silently fixed,
+// worsened or made unreproducible. See the `## Bugs` entry in `backlogs/axum-api-kit.md`; fixing
+// the bug MUST redden these, and that red is the signal to close the entry and delete them.
+
+#[tokio::test]
+async fn known_gap_created_reports_201_when_the_body_fails_to_serialize() {
+    let (status, _, _) = parts(Created::new(Unserializable).into_response()).await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "GAP CLOSED: Created no longer reports a success status when its body fails to \
+         serialize. Delete this test and close the backlog entry."
+    );
+}
+
+/// Asserted as one WHOLE-RESPONSE triple rather than as three clauses, deliberately and against
+/// this file's usual one-clause-per-test rule: the wrongness here is not any one member — a
+/// `text/plain` serde error IS the correct body for a serialization failure, and `500` would be
+/// the correct status for it — but the COMBINATION of a success status with that body. Split into
+/// clauses, the status clause and the body clause would each pass under a fix that corrects the
+/// other, and the pin would stop being the close condition L-052 requires it to be.
+#[tokio::test]
+async fn known_gap_created_sends_a_text_plain_serde_error_under_a_201() {
+    let (status, content_type, body) = parts(Created::new(Unserializable).into_response()).await;
+    assert_eq!(
+        (status, content_type.as_str(), body.as_str()),
+        (
+            StatusCode::CREATED,
+            "text/plain; charset=utf-8",
+            "payload cannot be serialized"
+        ),
+        "GAP CLOSED: Created no longer leaks the serde error as the body of a success response. \
+         Delete this test and close the backlog entry."
+    );
+}
+
+/// The sharpest shape of the gap: a client that follows `Location` on a 201 is sent to a resource
+/// that was never created, because the header survives the failure that lost the body.
+#[tokio::test]
+async fn known_gap_created_still_sets_location_when_the_body_fails_to_serialize() {
+    let res = Created::new(Unserializable)
+        .with_location("/items/42")
+        .into_response();
+    assert_eq!(
+        header(&res, LOCATION),
+        "/items/42",
+        "GAP CLOSED: Created no longer advertises a Location for a resource whose body failed to \
+         serialize. Delete this test and close the backlog entry."
+    );
+}
+
+#[tokio::test]
+async fn known_gap_accepted_reports_202_when_the_body_fails_to_serialize() {
+    let (status, _, _) = parts(Accepted::new(Unserializable).into_response()).await;
+    assert_eq!(
+        status,
+        StatusCode::ACCEPTED,
+        "GAP CLOSED: Accepted no longer reports a success status when its body fails to \
+         serialize. Delete this test and close the backlog entry."
+    );
+}
+
+/// The same gap through a real `Router`, because that is where a consumer meets it: the status is
+/// not an artefact of calling `into_response()` by hand.
+#[tokio::test]
+async fn known_gap_routed_created_reports_201_when_the_body_fails_to_serialize() {
+    async fn broken() -> Created<Unserializable> {
+        Created::new(Unserializable)
+    }
+    let request = Request::builder()
+        .method("POST")
+        .uri("/broken")
+        .body(Body::empty())
+        .expect("request builds");
+    let res = Router::new()
+        .route("/broken", post(broken))
+        .oneshot(request)
+        .await
+        .expect("router is infallible");
+    let (status, _, _) = parts(res).await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "GAP CLOSED: a routed Created no longer reports a success status when its body fails to \
+         serialize. Delete this test and close the backlog entry."
+    );
+}
+
+// --- The contrast that scopes the gap ---------------------------------------------------------
+//
+// `ListResponse` and `CursorResponse` are generic over the same `T: Serialize` and take the same
+// unserializable payload, and they answer correctly — because they render as a bare
+// `Json(self).into_response()` with no status written over it. So the defect above is the status
+// override and not the generic payload, and the correct behaviour already exists in this crate.
+// These are ordinary contract tests, not known gaps: they lock behaviour that is right today.
+
+#[tokio::test]
+async fn list_response_reports_500_when_the_body_fails_to_serialize() {
+    let list = ListResponse {
+        data: vec![Unserializable],
+        total: 1,
+        limit: 50,
+        offset: 0,
+    };
+    let (status, _, _) = parts(list.into_response()).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn cursor_response_reports_500_when_the_body_fails_to_serialize() {
+    let cursor = CursorResponse {
+        data: vec![Unserializable],
+        next_cursor: None,
+        has_more: false,
+    };
+    let (status, _, _) = parts(cursor.into_response()).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }

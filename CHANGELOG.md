@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- First response-level test coverage for the success-side helpers `Created`,
+  `Accepted` and `NoContent` (`src/success.rs`, shipped in 1.1.0 on 2026-06-07),
+  the last no-feature-flag response types with none. They appeared nowhere in
+  `tests/` at all: their unit tests do render a `Response`, but read it through
+  `serde_json::from_slice(..).unwrap_or(Value::Null)` and assert one navigated
+  field, so the `Content-Type` of every created resource this crate emits, the
+  exact body bytes, and everything axum's service stack adds on the way out were
+  unobserved, and none of the three had ever been driven through a real
+  `Router`. `tests/default_response_contracts.rs` now locks status,
+  `Content-Type`, body bytes and the `Location` header for each, both directly
+  and through `Router::oneshot` — including that a 204 carries no
+  `Content-Type` and declares `content-length: 0`.
+
+### Changed
+
+- **`Created` and `Accepted` now document what they emit when the body fails to
+  serialize, which is not what a reader would assume.** Both build their
+  response as `(StatusCode::CREATED, Json(self.data))`, and the tuple applies
+  the status *after* `Json` has rendered its own `500 Internal Server Error`, so
+  a failing `Serialize` impl produces **`201 Created`** (or `202 Accepted`) with
+  a `text/plain` serde error message as the body — and, for `Created`, with the
+  `Location` header still attached. Behaviour is unchanged: fixing it changes
+  bytes a published 2.x consumer can already observe, so it is filed as a bug
+  and pinned by `known_gap_` tests rather than silently altered. The rustdoc now
+  says so, and names `ListResponse` / `CursorResponse` — generic over the same
+  `T`, rendered as a bare `Json(self).into_response()` — as the in-crate
+  demonstration that `500` is the reachable correct answer.
+
 ### Fixed
 
 - **An explicit JSON `null` in `ApiError::details` is now treated as "no details" everywhere, so
