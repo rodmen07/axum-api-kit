@@ -763,12 +763,22 @@ async fn known_gap_created_reports_201_when_the_body_fails_to_serialize() {
     );
 }
 
+/// Asserted as one WHOLE-RESPONSE triple rather than as three clauses, deliberately and against
+/// this file's usual one-clause-per-test rule: the wrongness here is not any one member — a
+/// `text/plain` serde error IS the correct body for a serialization failure, and `500` would be
+/// the correct status for it — but the COMBINATION of a success status with that body. Split into
+/// clauses, the status clause and the body clause would each pass under a fix that corrects the
+/// other, and the pin would stop being the close condition L-052 requires it to be.
 #[tokio::test]
-async fn known_gap_created_sends_a_text_plain_serde_error_under_201() {
-    let (_, content_type, body) = parts(Created::new(Unserializable).into_response()).await;
+async fn known_gap_created_sends_a_text_plain_serde_error_under_a_201() {
+    let (status, content_type, body) = parts(Created::new(Unserializable).into_response()).await;
     assert_eq!(
-        (content_type.as_str(), body.as_str()),
-        ("text/plain; charset=utf-8", "payload cannot be serialized"),
+        (status, content_type.as_str(), body.as_str()),
+        (
+            StatusCode::CREATED,
+            "text/plain; charset=utf-8",
+            "payload cannot be serialized"
+        ),
         "GAP CLOSED: Created no longer leaks the serde error as the body of a success response. \
          Delete this test and close the backlog entry."
     );
