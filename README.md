@@ -244,6 +244,34 @@ async fn delete_user() -> impl IntoResponse {
 }
 ```
 
+### Conditional GETs: `Revalidated<T>`
+
+The read half of the lifecycle the success types cover for writes: a `200 OK` JSON
+response carrying a strong `ETag` computed from the exact bytes it emits (a vendored
+FNV-1a 64, so tags never drift across toolchains), answering `304 Not Modified` with an
+empty body when the request's `If-None-Match` matches (RFC 9110 weak comparison — `W/`
+prefixes, `*`, and comma-separated lists all handled). No feature flag; it ships beside
+`Created`/`Accepted`/`NoContent`.
+
+```rust
+use axum::http::{header::IF_NONE_MATCH, HeaderMap};
+use axum::response::IntoResponse;
+use axum_api_kit::Revalidated;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct Item { id: String }
+
+async fn get_item(headers: HeaderMap) -> impl IntoResponse {
+    let item = Item { id: "1".into() };
+    Revalidated::new(item).if_none_match(headers.get(IF_NONE_MATCH))
+}
+```
+
+A consumer who needs a validator that resists deliberate collisions computes their own
+digest and hands it in with `.with_etag("sha256-...")`; the crate takes no dependency
+for it.
+
 ### `Problem` (RFC 9457)
 
 With the `problem` feature (no new dependencies), `Problem` is an

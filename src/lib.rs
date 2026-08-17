@@ -21,6 +21,11 @@
 //! - [`Created<T>`], [`Accepted<T>`], and [`NoContent`] - success-side responses for the
 //!   rest of the CRUD lifecycle: `201 Created` (with an optional `Location` header),
 //!   `202 Accepted`, and `204 No Content`.
+//! - [`Revalidated<T>`] - the conditional-GET half of that lifecycle: a `200 OK` JSON
+//!   response carrying a strong `ETag` computed from the exact bytes it emits (vendored
+//!   FNV-1a 64), answering `304 Not Modified` with an empty body when the request's
+//!   `If-None-Match` matches (RFC 9110 weak comparison), with a caller-supplied-validator
+//!   escape hatch via `with_etag`.
 //!
 //! With optional feature flags enabled, the kit also provides request extractors that
 //! reject with an [`ApiError`] body on failure:
@@ -120,6 +125,7 @@ mod pagination;
 mod problem;
 #[cfg(all(feature = "problem", any(feature = "extract", feature = "validator")))]
 mod problemjson;
+mod revalidated;
 #[cfg(feature = "router")]
 mod router;
 mod success;
@@ -146,6 +152,7 @@ pub use problemjson::ProblemJson;
 pub use problemjson::ProblemRejection;
 #[cfg(all(feature = "problem", feature = "validator"))]
 pub use problemjson::ProblemValidatedJson;
+pub use revalidated::Revalidated;
 #[cfg(feature = "router")]
 pub use router::{api_fallback, api_method_not_allowed, health_routes, liveness};
 #[cfg(all(feature = "router", feature = "problem"))]

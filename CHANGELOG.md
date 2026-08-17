@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Revalidated<T>` — conditional GETs (v2.3.0 candidate C1), in the default
+  feature set beside `Created`/`Accepted`/`NoContent`, the family it
+  completes.** A `200 OK` JSON response carrying a strong `ETag` computed from
+  the exact bytes it emits (serialized once; the buffer hashed is the buffer
+  sent), answering `304 Not Modified` with a zero-byte body and the same `ETag`
+  repeated when the request's `If-None-Match` matches. Matching is RFC 9110
+  §13.1.2's weak comparison: `W/`-prefixed client tags match, `*` matches
+  whenever there is a representation, comma-separated lists match on any
+  member, and a malformed field is no match (a normal `200`), never an error.
+  The hash is a vendored FNV-1a 64 rendered as 16 lowercase hex digits
+  (`std::hash::DefaultHasher` disclaims cross-release stability, which would
+  make ETags differ between fleet instances built on different toolchains);
+  `.with_etag(..)` replaces it with a caller-supplied validator for consumers
+  who need collision resistance, at no dependency cost. On the 304 the wrapper
+  sets neither `Content-Type` nor `Content-Length` (the design note's C1-D3
+  decision; axum's router adds its own `content-length: 0` to bodyless
+  responses, as it does for the 204). A body that fails to serialize answers a
+  structured `ApiError` under a real `500` — deliberately not `axum::Json`'s
+  `text/plain` serde-error body, and deliberately not the success-status gap
+  `Created`/`Accepted` have on file. All decisions per
+  `docs/DESIGN_NOTE_C1_CONDITIONAL_GETS.md` (C1-D1…C1-D4); safe methods only,
+  the `412` conditional-write half stays deferred (C1-D4).
+
 - First response-level test coverage for the success-side helpers `Created`,
   `Accepted` and `NoContent` (`src/success.rs`, shipped in 1.1.0 on 2026-06-07),
   the last no-feature-flag response types with none. They appeared nowhere in
