@@ -311,10 +311,11 @@ async fn an_invalid_custom_etag_never_answers_304() {
 
 // --- Serialization failure --------------------------------------------------------------------
 //
-// The deliberate divergence from `axum::Json` (which answers a `text/plain` serde-error body),
-// and from `Created`/`Accepted`'s known gap (which report their success status over it): a
-// failing body here is a structured `ApiError` under the correct status. If `Unserializable`
-// were ever made serializable these fail loudly (200 != 500), so none of them is vacuous.
+// The deliberate divergence from `axum::Json` (which answers a `text/plain` serde-error body,
+// the answer `Created`/`Accepted` pass through since their 2026-08-18 serialization-failure
+// fix): a failing body here is a structured `ApiError` under the correct status. If
+// `Unserializable` were ever made serializable these fail loudly (200 != 500), so none of them
+// is vacuous.
 
 #[tokio::test]
 async fn a_failing_body_answers_500() {

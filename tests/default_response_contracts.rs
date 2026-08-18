@@ -30,10 +30,12 @@
 //!   exact body bytes, and everything axum's own service stack adds on the way out were
 //!   unobserved. None of the three had ever been driven through a real `Router`.
 //!
-//! The `known_gap_` block at the end of this file pins a defect that first coverage found; see the
-//! `## Bugs` entry it names. The `ListResponse` / `CursorResponse` tests beside it are the
-//! contrast that scopes the defect, not decoration — they take the identical unserializable
-//! payload and are the crate's own demonstration of the correct answer.
+//! The serialization-failure block at the end of this file locks the correct answer for a body
+//! that fails to serialize — `Json`'s own `500`, passed through untouched — a defect this file's
+//! first coverage found shipping as `201`/`202` (filed 2026-08-13, pinned by five `known_gap_`
+//! tests, fixed 2026-08-18 with the pins deleted per their own instruction). The `ListResponse` /
+//! `CursorResponse` tests beside it take the identical unserializable payload and were the
+//! crate's own demonstration of that answer while the gap stood.
 //!
 //! Deliberately NOT feature-gated: this file must run under plain `cargo test`, which is the
 //! `Test, Lint, Format` job's default-feature step (`.github/workflows/ci.yml`). Every other
@@ -737,83 +739,78 @@ async fn routed_no_content_body_is_zero_bytes() {
     assert_eq!(body, "");
 }
 
-// --- The serialization-failure gap ------------------------------------------------------------
+// --- The serialization-failure contract -------------------------------------------------------
 //
-// `Created` and `Accepted` build their response as `(StatusCode::CREATED, Json(self.data))`. The
-// tuple's `IntoResponse` renders the LAST element first and then OVERWRITES the status, so when
-// `Json` fails to serialize and correctly produces its own `500 Internal Server Error`, the
-// success status is written back over it. The client is told the resource was created; the body
-// it receives is a `text/plain` serde error message.
+// `Created` and `Accepted` render through `Json` and stamp their success status ONLY over the
+// `200 OK` that `Json` produces on success. When `T`'s `Serialize` impl fails, `Json`'s own
+// answer — `500 Internal Server Error` with a `text/plain` serde error body — passes through
+// untouched, and `Created` withholds its `Location` header: a client must never be told a
+// resource was created, or be handed a `Location` to follow, by a response whose body was lost.
 //
-// Filed, not fixed: changing either status changes bytes a published 2.x consumer can already
-// observe, which is a decision about the shipped surface rather than a test fix (the PR #15 /
-// #23 precedent in this repo). The tests below are the L-052 characterisation pins — they assert
-// today's WRONG behaviour, so the defect has a mechanical existence and cannot be silently fixed,
-// worsened or made unreproducible. See the `## Bugs` entry in `backlogs/axum-api-kit.md`; fixing
-// the bug MUST redden these, and that red is the signal to close the entry and delete them.
+// Until 2026-08-18 both types built the response as `(StatusCode::CREATED, Json(self.data))`,
+// whose tuple `IntoResponse` stamps the status unconditionally AFTER `Json` has rendered, so a
+// failing body shipped under `201`/`202` with the serde error as the body — filed as a MED bug
+// and pinned by five `known_gap_` tests that stood exactly here. The fix reddened all five with
+// their GAP-CLOSED messages and they are deleted per their own instruction; the tests below lock
+// the corrected behaviour, one clause per test.
 
 #[tokio::test]
-async fn known_gap_created_reports_201_when_the_body_fails_to_serialize() {
+async fn created_reports_500_when_the_body_fails_to_serialize() {
     let (status, _, _) = parts(Created::new(Unserializable).into_response()).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "GAP CLOSED: Created no longer reports a success status when its body fails to \
-         serialize. Delete this test and close the backlog entry."
-    );
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
-/// Asserted as one WHOLE-RESPONSE triple rather than as three clauses, deliberately and against
-/// this file's usual one-clause-per-test rule: the wrongness here is not any one member — a
-/// `text/plain` serde error IS the correct body for a serialization failure, and `500` would be
-/// the correct status for it — but the COMBINATION of a success status with that body. Split into
-/// clauses, the status clause and the body clause would each pass under a fix that corrects the
-/// other, and the pin would stop being the close condition L-052 requires it to be.
 #[tokio::test]
-async fn known_gap_created_sends_a_text_plain_serde_error_under_a_201() {
-    let (status, content_type, body) = parts(Created::new(Unserializable).into_response()).await;
-    assert_eq!(
-        (status, content_type.as_str(), body.as_str()),
-        (
-            StatusCode::CREATED,
-            "text/plain; charset=utf-8",
-            "payload cannot be serialized"
-        ),
-        "GAP CLOSED: Created no longer leaks the serde error as the body of a success response. \
-         Delete this test and close the backlog entry."
-    );
+async fn created_serialization_failure_content_type_is_text_plain() {
+    let (_, content_type, _) = parts(Created::new(Unserializable).into_response()).await;
+    assert_eq!(content_type, "text/plain; charset=utf-8");
 }
 
-/// The sharpest shape of the gap: a client that follows `Location` on a 201 is sent to a resource
-/// that was never created, because the header survives the failure that lost the body.
 #[tokio::test]
-async fn known_gap_created_still_sets_location_when_the_body_fails_to_serialize() {
+async fn created_serialization_failure_body_is_the_serde_error() {
+    let (_, _, body) = parts(Created::new(Unserializable).into_response()).await;
+    assert_eq!(body, "payload cannot be serialized");
+}
+
+/// The decision the fix implements is "mirror `Json`'s own answer", so the whole response triple
+/// is asserted equal to `Json`'s: if axum ever changes what a failed serialization renders as,
+/// the pass-through follows it and this stays green; if the pass-through is ever replaced by a
+/// hand-built response, this is the test that names the divergence. The three absolute clauses
+/// above stand beside it because a differential alone cannot pin what either side actually says.
+#[tokio::test]
+async fn created_serialization_failure_answer_matches_axum_jsons_own() {
+    let ours = parts(Created::new(Unserializable).into_response()).await;
+    let axums = parts(Json(Unserializable).into_response()).await;
+    assert_eq!(ours, axums);
+}
+
+/// The sharpest clause of the old gap, inverted: a client that follows `Location` must never be
+/// sent to a resource that was not created, so the header does not survive the failure.
+#[tokio::test]
+async fn created_sends_no_location_when_the_body_fails_to_serialize() {
     let res = Created::new(Unserializable)
         .with_location("/items/42")
         .into_response();
-    assert_eq!(
-        header(&res, LOCATION),
-        "/items/42",
-        "GAP CLOSED: Created no longer advertises a Location for a resource whose body failed to \
-         serialize. Delete this test and close the backlog entry."
-    );
+    assert_eq!(header(&res, LOCATION), "<absent>");
 }
 
 #[tokio::test]
-async fn known_gap_accepted_reports_202_when_the_body_fails_to_serialize() {
+async fn accepted_reports_500_when_the_body_fails_to_serialize() {
     let (status, _, _) = parts(Accepted::new(Unserializable).into_response()).await;
-    assert_eq!(
-        status,
-        StatusCode::ACCEPTED,
-        "GAP CLOSED: Accepted no longer reports a success status when its body fails to \
-         serialize. Delete this test and close the backlog entry."
-    );
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
-/// The same gap through a real `Router`, because that is where a consumer meets it: the status is
-/// not an artefact of calling `into_response()` by hand.
 #[tokio::test]
-async fn known_gap_routed_created_reports_201_when_the_body_fails_to_serialize() {
+async fn accepted_serialization_failure_answer_matches_axum_jsons_own() {
+    let ours = parts(Accepted::new(Unserializable).into_response()).await;
+    let axums = parts(Json(Unserializable).into_response()).await;
+    assert_eq!(ours, axums);
+}
+
+/// The same contract through a real `Router`, because that is where a consumer meets it: the
+/// status is not an artefact of calling `into_response()` by hand.
+#[tokio::test]
+async fn routed_created_reports_500_when_the_body_fails_to_serialize() {
     async fn broken() -> Created<Unserializable> {
         Created::new(Unserializable)
     }
@@ -828,21 +825,16 @@ async fn known_gap_routed_created_reports_201_when_the_body_fails_to_serialize()
         .await
         .expect("router is infallible");
     let (status, _, _) = parts(res).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "GAP CLOSED: a routed Created no longer reports a success status when its body fails to \
-         serialize. Delete this test and close the backlog entry."
-    );
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
-// --- The contrast that scopes the gap ---------------------------------------------------------
+// --- The contrast that scoped the gap ---------------------------------------------------------
 //
 // `ListResponse` and `CursorResponse` are generic over the same `T: Serialize` and take the same
-// unserializable payload, and they answer correctly — because they render as a bare
-// `Json(self).into_response()` with no status written over it. So the defect above is the status
-// override and not the generic payload, and the correct behaviour already exists in this crate.
-// These are ordinary contract tests, not known gaps: they lock behaviour that is right today.
+// unserializable payload; they render as a bare `Json(self).into_response()` with no status
+// written over it, and were the crate's own demonstration that `500` is the reachable correct
+// answer while the gap above stood. They lock the same contract from the type family that never
+// had the defect.
 
 #[tokio::test]
 async fn list_response_reports_500_when_the_body_fails_to_serialize() {

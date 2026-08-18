@@ -27,8 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decision; axum's router adds its own `content-length: 0` to bodyless
   responses, as it does for the 204). A body that fails to serialize answers a
   structured `ApiError` under a real `500` — deliberately not `axum::Json`'s
-  `text/plain` serde-error body, and deliberately not the success-status gap
-  `Created`/`Accepted` have on file. All decisions per
+  `text/plain` serde-error body, and never the success-status gap
+  `Created`/`Accepted` carried until the fix below. All decisions per
   `docs/DESIGN_NOTE_C1_CONDITIONAL_GETS.md` (C1-D1…C1-D4); safe methods only,
   the `412` conditional-write half stays deferred (C1-D4).
 
@@ -45,22 +45,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and through `Router::oneshot` — including that a 204 carries no
   `Content-Type` and declares `content-length: 0`.
 
-### Changed
-
-- **`Created` and `Accepted` now document what they emit when the body fails to
-  serialize, which is not what a reader would assume.** Both build their
-  response as `(StatusCode::CREATED, Json(self.data))`, and the tuple applies
-  the status *after* `Json` has rendered its own `500 Internal Server Error`, so
-  a failing `Serialize` impl produces **`201 Created`** (or `202 Accepted`) with
-  a `text/plain` serde error message as the body — and, for `Created`, with the
-  `Location` header still attached. Behaviour is unchanged: fixing it changes
-  bytes a published 2.x consumer can already observe, so it is filed as a bug
-  and pinned by `known_gap_` tests rather than silently altered. The rustdoc now
-  says so, and names `ListResponse` / `CursorResponse` — generic over the same
-  `T`, rendered as a bare `Json(self).into_response()` — as the in-crate
-  demonstration that `500` is the reachable correct answer.
-
 ### Fixed
+
+- **`Created` and `Accepted` no longer report their success status when the
+  body fails to serialize.** Both built their response as
+  `(StatusCode::CREATED, Json(self.data))`, and the tuple applies the status
+  *after* `Json` has rendered its own `500 Internal Server Error`, so a failing
+  `Serialize` impl produced **`201 Created`** (or `202 Accepted`) with a
+  `text/plain` serde error message as the body — and, for `Created`, with the
+  `Location` header still attached, inviting a client to follow it to a
+  resource that was never created. Both now stamp their status only over the
+  `200 OK` that `Json` produces on success and otherwise pass `Json`'s `500`
+  answer through untouched, exactly the behaviour `ListResponse` /
+  `CursorResponse` — generic over the same `T`, rendered as a bare
+  `Json(self).into_response()` — always had; `Created` additionally withholds
+  `Location` on the failure. Response bytes change **only** for payloads whose
+  `Serialize` impl fails; every success-path byte is locked unchanged by
+  `tests/default_response_contracts.rs`. A PATCH-level bug fix under the
+  Semver policy (found by this release's first response-level coverage of the
+  success helpers, filed and pinned 2026-08-13, fixed 2026-08-18).
 
 - **An explicit JSON `null` in `ApiError::details` is now treated as "no details" everywhere, so
   the wire can no longer contradict the schema.** `details` is documented and generated as
