@@ -16,26 +16,41 @@ use axum::{
 };
 use serde::Serialize;
 
+/// Renders `data` as JSON and stamps `status` over the `200 OK` that [`Json`]
+/// produces on success — and only over that.
+///
+/// On a serialization failure, `Json`'s own answer (`500 Internal Server
+/// Error` with a `text/plain` serde error body) is returned untouched, so a
+/// failing body is never reported under a success status. This
+/// overwrite-only-on-success rule is what distinguishes the helper from the
+/// plain `(StatusCode, Json(data))` tuple, whose `IntoResponse` stamps the
+/// status unconditionally after `Json` has already rendered.
+fn json_with_status<T: Serialize>(status: StatusCode, data: T) -> Response {
+    let mut res = Json(data).into_response();
+    if res.status() == StatusCode::OK {
+        *res.status_mut() = status;
+    }
+    res
+}
+
 /// A `201 Created` response carrying the newly created resource as a JSON body.
 ///
 /// The body is the resource itself (serialized directly, not wrapped), matching
 /// the common REST convention for `POST` create endpoints. Optionally sets a
 /// `Location` header pointing at the new resource via [`Created::with_location`].
 ///
-/// # Known gap: a body that fails to serialize still reports `201`
+/// # Serialization failure
 ///
-/// If `T`'s `Serialize` impl returns an error, the response is **`201 Created`**
-/// with `Content-Type: text/plain; charset=utf-8` and the serde error message as
-/// the body — and, if one was set, the `Location` header is still attached. The
-/// status axum's own [`Json`] produces for that case (`500 Internal Server
-/// Error`) is overwritten, because the status is applied after the body is
-/// rendered. [`ListResponse`](crate::ListResponse) and
-/// [`CursorResponse`](crate::CursorResponse) take the same `T` and correctly
-/// answer `500`.
-///
-/// This is documented rather than fixed because changing it changes bytes a
-/// published 2.x consumer can already observe; it is pinned by the `known_gap_`
-/// tests in `tests/default_response_contracts.rs`.
+/// If `T`'s `Serialize` impl returns an error, the response is exactly what
+/// axum's own [`Json`] answers for that case — **`500 Internal Server Error`**
+/// with a `text/plain` serde error message as the body — passed through
+/// untouched, and the `Location` header is **not** attached: a client must
+/// never be invited to follow a `Location` to a resource whose creation
+/// response was lost. The `201` is only ever stamped over the `200 OK` that
+/// `Json` produces on success. (2.2.0 and earlier applied the status after
+/// `Json` had already rendered, so a failing body shipped under `201` with the
+/// `Location` still set; the corrected behaviour is locked by
+/// `tests/default_response_contracts.rs`.)
 ///
 /// # Example
 ///
@@ -80,14 +95,21 @@ impl<T: Serialize> Created<T> {
 
 impl<T: Serialize> IntoResponse for Created<T> {
     fn into_response(self) -> Response {
-        let header = self
-            .location
-            .as_deref()
-            .and_then(|l| HeaderValue::from_str(l).ok());
-        match header {
-            Some(loc) => (StatusCode::CREATED, [(LOCATION, loc)], Json(self.data)).into_response(),
-            None => (StatusCode::CREATED, Json(self.data)).into_response(),
+        let mut res = json_with_status(StatusCode::CREATED, self.data);
+        // The Location header is attached only to a real 201: on a
+        // serialization failure there is no resource to point at, and a
+        // client that follows Location must never be sent to one that was
+        // not created.
+        if res.status() == StatusCode::CREATED {
+            let header = self
+                .location
+                .as_deref()
+                .and_then(|l| HeaderValue::from_str(l).ok());
+            if let Some(loc) = header {
+                res.headers_mut().insert(LOCATION, loc);
+            }
         }
+        res
     }
 }
 
@@ -97,13 +119,14 @@ impl<T: Serialize> IntoResponse for Created<T> {
 /// asynchronously - the body typically describes how to track the work (e.g. a
 /// job id or a status URL).
 ///
-/// # Known gap: a body that fails to serialize still reports `202`
+/// # Serialization failure
 ///
-/// Same shape as [`Created`]: a failing `Serialize` impl yields **`202
-/// Accepted`** with a `text/plain` serde error message as the body, because the
-/// status is applied after [`Json`] has already rendered its `500`. Documented
-/// rather than fixed for the same reason, and pinned by the `known_gap_` tests
-/// in `tests/default_response_contracts.rs`.
+/// Same shape as [`Created`]: a failing `Serialize` impl gets [`Json`]'s own
+/// answer — **`500 Internal Server Error`** with a `text/plain` serde error
+/// body — passed through untouched; the `202` is only ever stamped over a
+/// successful `200 OK`. (2.2.0 and earlier reported `202` with the serde
+/// error as the body; the corrected behaviour is locked by
+/// `tests/default_response_contracts.rs`.)
 ///
 /// # Example
 ///
@@ -134,7 +157,7 @@ impl<T: Serialize> Accepted<T> {
 
 impl<T: Serialize> IntoResponse for Accepted<T> {
     fn into_response(self) -> Response {
-        (StatusCode::ACCEPTED, Json(self.data)).into_response()
+        json_with_status(StatusCode::ACCEPTED, self.data)
     }
 }
 
